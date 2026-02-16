@@ -1,0 +1,82 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --lum-bg: #f5f4ea;
+  --lum-ink: #172021;
+  --lum-ink-dim: #4f5c5d;
+  --lum-accent: #0f766e;
+  --lum-accent-2: #ea580c;
+  --lum-panel: rgba(255, 255, 255, 0.84);
+  --lum-border: rgba(23, 32, 33, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: var(--lum-ink);
+  background:
+    radial-gradient(circle at 12% -10%, rgba(15, 118, 110, 0.18), transparent 40%),
+    radial-gradient(circle at 92% 0%, rgba(234, 88, 12, 0.16), transparent 30%),
+    linear-gradient(160deg, #fdfcf8 0%, var(--lum-bg) 36%, #eceee6 100%);
+  background-attachment: fixed;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.panel {
+  border: 1px solid var(--lum-border);
+  background: var(--lum-panel);
+  backdrop-filter: blur(12px);
+  border-radius: 18px;
+  box-shadow: 0 18px 40px -24px rgba(20, 30, 19, 0.35);
+}
+
+.panel-tight {
+  border: 1px solid var(--lum-border);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 12px;
+}
+
+.lumdara-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(23, 32, 33, 0.35) transparent;
+}
+
+.lumdara-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.lumdara-scroll::-webkit-scrollbar-thumb {
+  background: rgba(23, 32, 33, 0.3);
+  border-radius: 999px;
+}
+
+.lumdara-grid.ag-theme-quartz {
+  --ag-font-family: "IBM Plex Sans", sans-serif;
+  --ag-border-color: rgba(23, 32, 33, 0.12);
+  --ag-header-background-color: rgba(15, 118, 110, 0.08);
+  --ag-background-color: rgba(255, 255, 255, 0.65);
+  --ag-odd-row-background-color: rgba(255, 255, 255, 0.95);
+  --ag-row-hover-color: rgba(15, 118, 110, 0.08);
+  --ag-selected-row-background-color: rgba(15, 118, 110, 0.16);
+}
