@@ -24,40 +24,41 @@ const matrix = computed(() => [
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-    <section class="panel-tight min-h-0 overflow-hidden p-4">
-      <h2 class="font-display text-lg font-semibold tracking-tight text-slate-900">Capabilities</h2>
-      <p class="mt-1 text-sm text-slate-600">Runtime-aware feature matrix for Lumdara's dual-mode architecture.</p>
+  <div class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <section class="panel-tight min-h-0 overflow-hidden p-3">
+      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Capability Matrix</h2>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">Runtime-aware features for Lumdara's dual-mode architecture.</p>
 
-      <div class="mt-4 overflow-hidden rounded-xl border border-slate-200">
-        <table class="w-full border-collapse text-sm">
+      <div class="mt-3 overflow-hidden border border-[var(--chrome-border)]">
+        <table class="w-full border-collapse text-xs">
           <thead>
-            <tr class="bg-slate-100 text-left text-slate-700">
-              <th class="px-3 py-2 font-semibold">Feature</th>
-              <th class="px-3 py-2 font-semibold">Desktop</th>
-              <th class="px-3 py-2 font-semibold">Web</th>
+            <tr class="border-b border-[var(--chrome-border)] bg-[#161c27] text-left text-[var(--chrome-ink-dim)]">
+              <th class="px-2.5 py-2 font-semibold uppercase tracking-[0.1em]">Feature</th>
+              <th class="px-2.5 py-2 font-semibold uppercase tracking-[0.1em]">Desktop</th>
+              <th class="px-2.5 py-2 font-semibold uppercase tracking-[0.1em]">Web</th>
             </tr>
           </thead>
 
           <tbody>
-            <tr v-for="item in matrix" :key="item.feature" class="border-t border-slate-200">
-              <td class="px-3 py-2 text-slate-800">{{ item.feature }}</td>
-              <td class="px-3 py-2 text-slate-600">{{ item.desktop }}</td>
-              <td class="px-3 py-2 text-slate-600">{{ item.web }}</td>
+            <tr v-for="item in matrix" :key="item.feature" class="border-t border-[var(--chrome-border)]">
+              <td class="px-2.5 py-2 text-[var(--chrome-ink)]">{{ item.feature }}</td>
+              <td class="px-2.5 py-2 text-[var(--chrome-ink-dim)]">{{ item.desktop }}</td>
+              <td class="px-2.5 py-2 text-[var(--chrome-ink-dim)]">{{ item.web }}</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <section class="panel-tight p-4">
-      <h3 class="font-display text-lg font-semibold tracking-tight text-slate-900">Runtime Status</h3>
-      <div class="mt-3 rounded-xl border border-slate-200 bg-white/80 p-3 text-sm text-slate-700">
-        Current runtime: <span class="font-semibold text-slate-900">{{ runtimeMode }}</span>
+    <section class="panel-tight p-3">
+      <h3 class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Runtime Status</h3>
+      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3 text-xs text-[var(--chrome-ink-dim)]">
+        Current runtime:
+        <span class="ml-1 font-semibold uppercase tracking-[0.1em] text-[var(--chrome-green)]">{{ runtimeMode }}</span>
       </div>
 
-      <h3 class="mt-4 font-display text-lg font-semibold tracking-tight text-slate-900">Security Notes</h3>
-      <ul class="mt-2 space-y-2 pl-5 text-sm text-slate-700">
+      <h3 class="mt-4 font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Security Notes</h3>
+      <ul class="mt-2 space-y-2 pl-4 text-xs text-[var(--chrome-ink-dim)]">
         <li>Credentials are intended to be encrypted before persistence.</li>
         <li>Web mode is limited to browser-reachable cloud SQL endpoints.</li>
         <li>Desktop mode is where full socket-level Postgres/MySQL support lands.</li>

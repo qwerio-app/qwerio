@@ -15,41 +15,46 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="flex h-full flex-col gap-3 overflow-hidden">
-    <div class="panel-tight flex items-center justify-between px-3 py-2">
+  <section class="panel-tight flex h-full flex-col overflow-hidden">
+    <div class="chrome-panel-header flex items-center justify-between px-2.5 py-2">
       <div>
-        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Schema</p>
-        <p class="truncate font-display text-sm font-semibold text-slate-900">{{ activeConnectionName }}</p>
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--chrome-ink-muted)]">schema</p>
+        <p class="truncate font-display text-base font-semibold tracking-[0.03em] text-[var(--chrome-ink)]">{{ activeConnectionName }}</p>
       </div>
 
       <button
         type="button"
-        class="rounded-lg p-2 text-slate-600 transition hover:bg-slate-900/5 hover:text-slate-900"
+        class="chrome-btn !p-1.5"
+        aria-label="refresh schema"
         @click="workbenchStore.refreshSchema"
       >
-        <RefreshCcw :size="15" />
+        <RefreshCcw :size="14" />
       </button>
     </div>
 
-    <div class="lumdara-scroll panel-tight min-h-0 flex-1 overflow-auto p-2">
-      <p v-if="workbenchStore.schemaNames.length === 0" class="p-3 text-sm text-slate-500">
+    <div class="lumdara-scroll min-h-0 flex-1 overflow-auto p-2">
+      <p v-if="workbenchStore.schemaNames.length === 0" class="chrome-empty p-3 text-xs">
         Add a connection to inspect schemas.
       </p>
 
-      <div v-for="schema in workbenchStore.schemaNames" :key="schema.name" class="mb-3 rounded-xl border border-slate-200/80 bg-white/80">
-        <div class="flex items-center gap-2 border-b border-slate-200/80 px-3 py-2">
-          <Braces :size="14" class="text-teal-700" />
-          <p class="font-medium text-slate-800">{{ schema.name }}</p>
+      <div
+        v-for="schema in workbenchStore.schemaNames"
+        :key="schema.name"
+        class="mb-2 border border-[var(--chrome-border)] bg-[#0f141c]"
+      >
+        <div class="flex items-center gap-2 border-b border-[var(--chrome-border)] px-2.5 py-1.5">
+          <Braces :size="13" class="text-[var(--chrome-red)]" />
+          <p class="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink-dim)]">{{ schema.name }}</p>
         </div>
 
-        <ul class="m-0 list-none p-2">
+        <ul class="m-0 list-none p-1.5">
           <li
             v-for="table in workbenchStore.tableMap[schema.name] ?? []"
             :key="table.name"
-            class="mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-900/5"
+            class="mb-1 flex items-center gap-1.5 border border-transparent px-1.5 py-1 text-xs text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border)] hover:bg-[#141a24] hover:text-[var(--chrome-ink)]"
           >
-            <Table2 :size="14" class="text-orange-600" />
-            <span>{{ table.name }}</span>
+            <Table2 :size="12" class="text-[var(--chrome-yellow)]" />
+            <span class="truncate">{{ table.name }}</span>
           </li>
         </ul>
       </div>

@@ -1,41 +1,86 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { Cable, Database, PanelsTopLeft, Settings } from "lucide-vue-next";
+import {
+  Cable,
+  ChevronLeft,
+  Database,
+  PanelsTopLeft,
+  Settings,
+} from "lucide-vue-next";
+import { useConnectionsStore } from "../../stores/connections";
 import { useUiStore } from "../../stores/ui";
 
 const route = useRoute();
 const uiStore = useUiStore();
+const connectionsStore = useConnectionsStore();
 
 const links = [
-  { to: "/workbench", label: "Workbench", icon: PanelsTopLeft },
+  { to: "/workbench", label: "Query Console", icon: PanelsTopLeft },
   { to: "/connections", label: "Connections", icon: Cable },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings", label: "System", icon: Settings },
 ];
 
 const sidebarWidthClass = computed(() =>
-  uiStore.sidebarCollapsed ? "w-[84px]" : "w-[252px]",
+  uiStore.sidebarCollapsed ? "md:w-[64px]" : "md:w-full",
+);
+
+const activeConnectionName = computed(
+  () => connectionsStore.activeProfile?.name ?? "none selected",
+);
+
+const sidebarHeaderClass = computed(() =>
+  uiStore.sidebarCollapsed
+    ? "chrome-panel-header mb-2 flex items-center justify-center border border-[var(--chrome-border)] px-1.5 py-2"
+    : "chrome-panel-header mb-2 flex items-center justify-between border border-[var(--chrome-border)] px-2.5 py-2",
+);
+
+const navItemClass = computed(() =>
+  uiStore.sidebarCollapsed
+    ? "flex items-center justify-center border py-2 text-xs font-semibold uppercase tracking-[0.13em] transition"
+    : "flex items-center gap-2.5 border px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition",
+);
+
+const profileCardClass = computed(() =>
+  uiStore.sidebarCollapsed
+    ? "mt-2 border border-[var(--chrome-border)] bg-[#0d1118] p-1.5"
+    : "mt-2 border border-[var(--chrome-border)] bg-[#0d1118] p-2",
 );
 </script>
 
 <template>
-  <aside :class="['panel hidden flex-col p-3 md:flex', sidebarWidthClass]">
-    <button
-      type="button"
-      class="mb-4 flex items-center gap-2 rounded-xl border border-black/10 bg-white/85 px-2 py-2 text-left transition hover:bg-white"
-      @click="uiStore.toggleSidebar"
-    >
-      <div
-        class="shrink-0 flex size-9 items-center justify-center rounded-lg border border-black/10 bg-gradient-to-br from-emerald-100 to-orange-100 text-emerald-700"
-      >
-        <Database :size="18" />
-      </div>
-      <span
+  <aside
+    :class="[
+      'panel lumdara-scroll flex min-h-[220px] flex-col overflow-auto p-2 md:min-h-0',
+      sidebarWidthClass,
+    ]"
+  >
+    <div :class="sidebarHeaderClass">
+      <p
         v-if="!uiStore.sidebarCollapsed"
-        class="font-display text-base font-semibold tracking-tight"
-        >Lumdara</span
+        class="font-display text-sm font-semibold uppercase tracking-[0.18em] text-[var(--chrome-ink-dim)]"
       >
-    </button>
+        navigator
+      </p>
+
+      <button
+        type="button"
+        class="chrome-btn !p-1.5"
+        :aria-label="
+          uiStore.sidebarCollapsed ? 'expand sidebar' : 'collapse sidebar'
+        "
+        @click="uiStore.toggleSidebar"
+      >
+        <ChevronLeft
+          :size="14"
+          :class="uiStore.sidebarCollapsed ? 'rotate-180' : ''"
+        />
+      </button>
+    </div>
+
+    <div v-if="!uiStore.sidebarCollapsed" class="mb-2">
+      <input type="text" class="chrome-input" placeholder="FILTER OBJECTS..." />
+    </div>
 
     <nav class="flex flex-1 flex-col gap-1">
       <RouterLink
@@ -43,22 +88,36 @@ const sidebarWidthClass = computed(() =>
         :key="link.to"
         :to="link.to"
         :class="[
-          'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition',
+          navItemClass,
           route.path === link.to
-            ? 'bg-teal-700 text-white shadow-soft'
-            : 'text-slate-700 hover:bg-slate-900/5 hover:text-slate-900',
+            ? 'border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] text-[var(--chrome-ink)]'
+            : 'border-transparent text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:bg-[#151b24] hover:text-[var(--chrome-ink)]',
         ]"
       >
-        <component :is="link.icon" :size="17" class="shrink-0" />
-        <span v-if="!uiStore.sidebarCollapsed">{{ link.label }}</span>
+        <component :is="link.icon" :size="15" class="shrink-0" />
+        <span v-if="!uiStore.sidebarCollapsed" class="truncate">{{
+          link.label
+        }}</span>
       </RouterLink>
     </nav>
 
-    <div
-      class="panel-tight mt-3 px-3 py-2 text-xs text-slate-600"
-      v-if="!uiStore.sidebarCollapsed"
-    >
-      Browser mode supports cloud providers with HTTP SQL endpoints.
+    <div :class="profileCardClass">
+      <div
+        :class="[
+          'text-xs uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]',
+          uiStore.sidebarCollapsed ? 'flex items-center justify-center' : 'flex items-center gap-2',
+        ]"
+      >
+        <Database :size="13" class="text-[var(--chrome-red)]" />
+        <span v-if="!uiStore.sidebarCollapsed">active profile</span>
+      </div>
+
+      <p
+        v-if="!uiStore.sidebarCollapsed"
+        class="mt-1 truncate text-sm font-semibold text-[var(--chrome-ink)]"
+      >
+        {{ activeConnectionName }}
+      </p>
     </div>
   </aside>
 </template>

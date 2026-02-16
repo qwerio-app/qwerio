@@ -1,17 +1,24 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --lum-bg: #f5f4ea;
-  --lum-ink: #172021;
-  --lum-ink-dim: #4f5c5d;
-  --lum-accent: #0f766e;
-  --lum-accent-2: #ea580c;
-  --lum-panel: rgba(255, 255, 255, 0.84);
-  --lum-border: rgba(23, 32, 33, 0.12);
+  --chrome-bg: #090b10;
+  --chrome-bg-2: #0d1016;
+  --chrome-panel: #11151d;
+  --chrome-panel-2: #161b24;
+  --chrome-ink: #e3e5ea;
+  --chrome-ink-dim: #9ca1ad;
+  --chrome-ink-muted: #6e737f;
+  --chrome-border: #2b313f;
+  --chrome-border-strong: #3b4254;
+  --chrome-red: #ff5252;
+  --chrome-red-soft: rgba(255, 82, 82, 0.16);
+  --chrome-green: #15d082;
+  --chrome-green-soft: rgba(21, 208, 130, 0.15);
+  --chrome-yellow: #ffcf5a;
 }
 
 * {
@@ -26,13 +33,18 @@ body,
 }
 
 body {
-  font-family: "IBM Plex Sans", sans-serif;
-  color: var(--lum-ink);
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--chrome-ink);
   background:
-    radial-gradient(circle at 12% -10%, rgba(15, 118, 110, 0.18), transparent 40%),
-    radial-gradient(circle at 92% 0%, rgba(234, 88, 12, 0.16), transparent 30%),
-    linear-gradient(160deg, #fdfcf8 0%, var(--lum-bg) 36%, #eceee6 100%);
-  background-attachment: fixed;
+    linear-gradient(0deg, rgba(255, 82, 82, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 82, 82, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 75% -35%, rgba(255, 82, 82, 0.08), transparent 48%),
+    linear-gradient(180deg, var(--chrome-bg) 0%, var(--chrome-bg-2) 100%);
+  background-size:
+    48px 48px,
+    48px 48px,
+    auto,
+    auto;
 }
 
 button,
@@ -42,41 +54,199 @@ textarea {
   font-family: inherit;
 }
 
-.panel {
-  border: 1px solid var(--lum-border);
-  background: var(--lum-panel);
-  backdrop-filter: blur(12px);
-  border-radius: 18px;
-  box-shadow: 0 18px 40px -24px rgba(20, 30, 19, 0.35);
+h1,
+h2,
+h3,
+.font-display {
+  font-family: "Rajdhani", sans-serif;
+}
+
+.panel,
+.chrome-panel {
+  border: 1px solid var(--chrome-border);
+  background: linear-gradient(180deg, rgba(22, 27, 36, 0.96), rgba(13, 16, 22, 0.96));
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
 }
 
 .panel-tight {
-  border: 1px solid var(--lum-border);
-  background: rgba(255, 255, 255, 0.92);
-  border-radius: 12px;
+  border: 1px solid var(--chrome-border);
+  background: rgba(14, 18, 25, 0.96);
+  border-radius: 4px;
+}
+
+.chrome-panel-header {
+  border-bottom: 1px solid var(--chrome-border);
+  background: linear-gradient(180deg, rgba(24, 29, 40, 0.96), rgba(18, 22, 30, 0.96));
+}
+
+.chrome-input {
+  width: 100%;
+  border: 1px solid var(--chrome-border);
+  border-radius: 3px;
+  background: rgba(9, 11, 16, 0.9);
+  color: var(--chrome-ink);
+  padding: 0.52rem 0.7rem;
+  font-size: 0.84rem;
+  outline: none;
+  transition: border-color 0.18s ease;
+}
+
+.chrome-input:focus {
+  border-color: var(--chrome-red);
+}
+
+.chrome-input:disabled {
+  cursor: not-allowed;
+  color: var(--chrome-ink-muted);
+  background: rgba(7, 9, 13, 0.8);
+}
+
+.chrome-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--chrome-ink-dim);
+}
+
+.chrome-btn {
+  border-radius: 3px;
+  border: 1px solid var(--chrome-border-strong);
+  background: linear-gradient(180deg, #1c222f, #141923);
+  color: var(--chrome-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.42rem 0.75rem;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.chrome-btn:hover {
+  border-color: #525d74;
+}
+
+.chrome-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.chrome-btn-primary {
+  border-color: rgba(255, 82, 82, 0.8);
+  background: linear-gradient(180deg, #ff6464, #d63939);
+  color: #1a0000;
+}
+
+.chrome-btn-primary:hover {
+  border-color: #ff8181;
+}
+
+.chrome-btn-danger {
+  border-color: rgba(255, 82, 82, 0.5);
+  color: #ff9696;
+}
+
+.chrome-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  border-radius: 3px;
+  border: 1px solid var(--chrome-border-strong);
+  padding: 0.2rem 0.42rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--chrome-ink-dim);
+  background: rgba(21, 25, 34, 0.9);
+}
+
+.chrome-pill-ok {
+  border-color: rgba(21, 208, 130, 0.5);
+  background: var(--chrome-green-soft);
+  color: var(--chrome-green);
+}
+
+.chrome-pill-bad {
+  border-color: rgba(255, 82, 82, 0.5);
+  background: var(--chrome-red-soft);
+  color: #ff9a9a;
+}
+
+.chrome-empty {
+  border: 1px dashed var(--chrome-border-strong);
+  border-radius: 4px;
+  background: rgba(14, 17, 23, 0.7);
+  color: var(--chrome-ink-muted);
 }
 
 .lumdara-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(23, 32, 33, 0.35) transparent;
+  scrollbar-color: #3b4254 #0f1219;
 }
 
 .lumdara-scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 
 .lumdara-scroll::-webkit-scrollbar-thumb {
-  background: rgba(23, 32, 33, 0.3);
+  background: #3b4254;
   border-radius: 999px;
 }
 
-.lumdara-grid.ag-theme-quartz {
-  --ag-font-family: "IBM Plex Sans", sans-serif;
-  --ag-border-color: rgba(23, 32, 33, 0.12);
-  --ag-header-background-color: rgba(15, 118, 110, 0.08);
-  --ag-background-color: rgba(255, 255, 255, 0.65);
-  --ag-odd-row-background-color: rgba(255, 255, 255, 0.95);
-  --ag-row-hover-color: rgba(15, 118, 110, 0.08);
-  --ag-selected-row-background-color: rgba(15, 118, 110, 0.16);
+.default-theme.splitpanes .splitpanes__pane {
+  background-color: transparent !important;
+}
+
+.default-theme.splitpanes .splitpanes__splitter {
+  background-color: #11151d !important;
+  border: 1px solid var(--chrome-border) !important;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.default-theme.splitpanes .splitpanes__splitter::before,
+.default-theme.splitpanes .splitpanes__splitter::after {
+  background-color: var(--chrome-red-soft) !important;
+}
+
+.default-theme.splitpanes .splitpanes__splitter:hover::before,
+.default-theme.splitpanes .splitpanes__splitter:hover::after {
+  background-color: rgba(255, 82, 82, 0.28) !important;
+}
+
+.default-theme.splitpanes--vertical > .splitpanes__splitter,
+.default-theme .splitpanes--vertical > .splitpanes__splitter {
+  border-left: 1px solid var(--chrome-border) !important;
+}
+
+.default-theme.splitpanes--horizontal > .splitpanes__splitter,
+.default-theme .splitpanes--horizontal > .splitpanes__splitter {
+  border-top: 1px solid var(--chrome-border) !important;
+}
+
+.lumdara-grid.ag-theme-quartz-dark {
+  --ag-font-family: "IBM Plex Mono", monospace;
+  --ag-foreground-color: #e3e5ea;
+  --ag-background-color: #0f131b;
+  --ag-border-color: #2b313f;
+  --ag-row-border-color: #252b37;
+  --ag-header-background-color: #171c27;
+  --ag-header-foreground-color: #b6bcc8;
+  --ag-odd-row-background-color: #121722;
+  --ag-row-hover-color: #1b2230;
+  --ag-selected-row-background-color: #2a2330;
+  --ag-input-focus-border-color: #ff5252;
+}
+
+.monaco-editor,
+.monaco-editor .margin,
+.monaco-editor-background {
+  background-color: #0b0f16 !important;
 }

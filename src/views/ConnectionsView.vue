@@ -267,32 +267,26 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 gap-3 lg:grid-cols-[380px_minmax(0,1fr)]">
-    <section class="panel-tight lumdara-scroll overflow-auto p-4">
-      <h2 class="font-display text-lg font-semibold tracking-tight text-slate-900">New Connection</h2>
-      <p class="mt-1 text-sm text-slate-600">
-        Desktop uses native drivers. Web mode uses provider HTTP adapters and cannot connect directly to localhost TCP databases.
+  <div class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[400px_minmax(0,1fr)]">
+    <section class="panel-tight lumdara-scroll overflow-auto p-3">
+      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connection Provisioning</h2>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+        Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode requires provider HTTP adapters.
       </p>
 
-      <div v-if="isWebRuntime" class="mt-4 rounded-xl border border-slate-200 bg-white/80 p-3">
+      <div v-if="isWebRuntime" class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
         <div class="flex items-center justify-between gap-2">
           <div>
-            <p class="text-sm font-semibold text-slate-900">Web Secret Vault</p>
-            <p class="text-xs text-slate-600">
-              Status:
-              <span class="font-semibold" :class="vaultStatus.unlocked ? 'text-emerald-700' : 'text-amber-700'">
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--chrome-ink-dim)]">Web Secret Vault</p>
+            <p class="mt-1 text-xs">
+              <span class="chrome-pill" :class="vaultStatus.unlocked ? 'chrome-pill-ok' : 'chrome-pill-bad'">
                 {{ vaultStatus.unlocked ? "Unlocked" : "Locked" }}
               </span>
             </p>
           </div>
 
-          <button
-            v-if="vaultStatus.unlocked"
-            type="button"
-            class="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-400"
-            @click="lockVault"
-          >
-            <Lock :size="13" />
+          <button v-if="vaultStatus.unlocked" type="button" class="chrome-btn inline-flex items-center gap-1" @click="lockVault">
+            <Lock :size="12" />
             Lock
           </button>
         </div>
@@ -301,42 +295,34 @@ onMounted(() => {
           <input
             v-model="vaultPassphrase"
             type="password"
-            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            class="chrome-input"
             placeholder="Enter passphrase (min 8 chars)"
           />
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-2 text-xs font-semibold text-white hover:bg-slate-900"
-            @click="unlockVault"
-          >
-            <Unlock :size="13" />
+          <button type="button" class="chrome-btn chrome-btn-primary inline-flex items-center gap-1" @click="unlockVault">
+            <Unlock :size="12" />
             {{ vaultStatus.initialized ? "Unlock" : "Create" }}
           </button>
         </div>
       </div>
 
       <form class="mt-4 flex flex-col gap-3" @submit.prevent="submitConnection">
-        <label class="text-sm font-medium text-slate-700">
-          Name
-          <input v-model="form.name" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="text" />
+        <label class="chrome-label">
+          <span>Name</span>
+          <input v-model="form.name" class="chrome-input mt-1" type="text" />
         </label>
 
         <div class="grid grid-cols-2 gap-3">
-          <label class="text-sm font-medium text-slate-700">
-            Mode
-            <select v-model="form.kind" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <label class="chrome-label">
+            <span>Mode</span>
+            <select v-model="form.kind" class="chrome-input mt-1">
               <option value="desktop-tcp" :disabled="isWebRuntime">Desktop TCP</option>
               <option value="web-provider">Web Provider</option>
             </select>
           </label>
 
-          <label class="text-sm font-medium text-slate-700">
-            Dialect
-            <select
-              v-model="form.dialect"
-              :disabled="form.kind === 'web-provider'"
-              class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100"
-            >
+          <label class="chrome-label">
+            <span>Dialect</span>
+            <select v-model="form.dialect" :disabled="form.kind === 'web-provider'" class="chrome-input mt-1">
               <option value="postgres">Postgres</option>
               <option value="mysql">MySQL</option>
             </select>
@@ -344,46 +330,38 @@ onMounted(() => {
         </div>
 
         <template v-if="form.kind === 'desktop-tcp'">
-          <label class="text-sm font-medium text-slate-700">
-            Host
-            <input v-model="form.host" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="text" />
+          <label class="chrome-label">
+            <span>Host</span>
+            <input v-model="form.host" class="chrome-input mt-1" type="text" />
           </label>
 
           <div class="grid grid-cols-2 gap-3">
-            <label class="text-sm font-medium text-slate-700">
-              Port
-              <input v-model.number="form.port" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="number" />
+            <label class="chrome-label">
+              <span>Port</span>
+              <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
             </label>
 
-            <label class="text-sm font-medium text-slate-700">
-              Database
-              <input
-                v-model="form.database"
-                class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                type="text"
-              />
+            <label class="chrome-label">
+              <span>Database</span>
+              <input v-model="form.database" class="chrome-input mt-1" type="text" />
             </label>
           </div>
 
-          <label class="text-sm font-medium text-slate-700">
-            User
-            <input v-model="form.user" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="text" />
+          <label class="chrome-label">
+            <span>User</span>
+            <input v-model="form.user" class="chrome-input mt-1" type="text" />
           </label>
 
-          <label class="text-sm font-medium text-slate-700">
-            Password (optional)
-            <input
-              v-model="form.password"
-              class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-              type="password"
-            />
+          <label class="chrome-label">
+            <span>Password (optional)</span>
+            <input v-model="form.password" class="chrome-input mt-1" type="password" />
           </label>
         </template>
 
         <template v-else>
-          <label class="text-sm font-medium text-slate-700">
-            Provider
-            <select v-model="form.provider" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+          <label class="chrome-label">
+            <span>Provider</span>
+            <select v-model="form.provider" class="chrome-input mt-1">
               <option value="postgres">Postgres (Standard)</option>
               <option value="neon">Neon (Postgres HTTP)</option>
               <option value="planetscale">PlanetScale (MySQL HTTP)</option>
@@ -391,52 +369,44 @@ onMounted(() => {
           </label>
 
           <template v-if="form.provider === 'planetscale'">
-            <label class="text-sm font-medium text-slate-700">
-              PlanetScale Host
+            <label class="chrome-label">
+              <span>PlanetScale Host</span>
               <input
                 v-model="form.endpoint"
-                class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                class="chrome-input mt-1"
                 type="text"
                 placeholder="aws.connect.psdb.cloud"
               />
             </label>
 
             <div class="grid grid-cols-2 gap-3">
-              <label class="text-sm font-medium text-slate-700">
-                Username
-                <input
-                  v-model="form.providerUsername"
-                  class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                  type="text"
-                />
+              <label class="chrome-label">
+                <span>Username</span>
+                <input v-model="form.providerUsername" class="chrome-input mt-1" type="text" />
               </label>
 
-              <label class="text-sm font-medium text-slate-700">
-                Password
-                <input
-                  v-model="form.providerPassword"
-                  class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                  type="password"
-                />
+              <label class="chrome-label">
+                <span>Password</span>
+                <input v-model="form.providerPassword" class="chrome-input mt-1" type="password" />
               </label>
             </div>
           </template>
 
           <template v-else-if="form.provider === 'postgres'">
-            <label class="text-sm font-medium text-slate-700">
-              Postgres Credential Format
-              <select v-model="form.postgresAuthMode" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+            <label class="chrome-label">
+              <span>Postgres Credential Format</span>
+              <select v-model="form.postgresAuthMode" class="chrome-input mt-1">
                 <option value="connection-string">Connection String</option>
                 <option value="fields">Separate Fields</option>
               </select>
             </label>
 
             <template v-if="form.postgresAuthMode === 'connection-string'">
-              <label class="text-sm font-medium text-slate-700">
-                Postgres Connection String
+              <label class="chrome-label">
+                <span>Postgres Connection String</span>
                 <input
                   v-model="form.connectionString"
-                  class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  class="chrome-input mt-1"
                   type="password"
                   placeholder="postgresql://user:password@host/database"
                 />
@@ -444,59 +414,43 @@ onMounted(() => {
             </template>
 
             <template v-else>
-              <label class="text-sm font-medium text-slate-700">
-                Host
+              <label class="chrome-label">
+                <span>Host</span>
                 <input
                   v-model="form.postgresHost"
-                  class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  class="chrome-input mt-1"
                   type="text"
                   placeholder="db.example.com"
                 />
               </label>
 
               <div class="grid grid-cols-2 gap-3">
-                <label class="text-sm font-medium text-slate-700">
-                  Port
-                  <input
-                    v-model.number="form.postgresPort"
-                    class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                    type="number"
-                  />
+                <label class="chrome-label">
+                  <span>Port</span>
+                  <input v-model.number="form.postgresPort" class="chrome-input mt-1" type="number" />
                 </label>
 
-                <label class="text-sm font-medium text-slate-700">
-                  Database
-                  <input
-                    v-model="form.postgresDatabase"
-                    class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                    type="text"
-                  />
+                <label class="chrome-label">
+                  <span>Database</span>
+                  <input v-model="form.postgresDatabase" class="chrome-input mt-1" type="text" />
                 </label>
               </div>
 
               <div class="grid grid-cols-2 gap-3">
-                <label class="text-sm font-medium text-slate-700">
-                  User
-                  <input
-                    v-model="form.postgresUser"
-                    class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                    type="text"
-                  />
+                <label class="chrome-label">
+                  <span>User</span>
+                  <input v-model="form.postgresUser" class="chrome-input mt-1" type="text" />
                 </label>
 
-                <label class="text-sm font-medium text-slate-700">
-                  Password
-                  <input
-                    v-model="form.postgresPassword"
-                    class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-                    type="password"
-                  />
+                <label class="chrome-label">
+                  <span>Password</span>
+                  <input v-model="form.postgresPassword" class="chrome-input mt-1" type="password" />
                 </label>
               </div>
 
-              <label class="text-sm font-medium text-slate-700">
-                SSL Mode
-                <select v-model="form.postgresSslMode" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+              <label class="chrome-label">
+                <span>SSL Mode</span>
+                <select v-model="form.postgresSslMode" class="chrome-input mt-1">
                   <option value="require">require</option>
                   <option value="prefer">prefer</option>
                   <option value="disable">disable</option>
@@ -506,11 +460,11 @@ onMounted(() => {
           </template>
 
           <template v-else>
-            <label class="text-sm font-medium text-slate-700">
-              Neon Connection String
+            <label class="chrome-label">
+              <span>Neon Connection String</span>
               <input
                 v-model="form.connectionString"
-                class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                class="chrome-input mt-1"
                 type="password"
                 placeholder="postgresql://user:password@ep-...neon.tech/database"
               />
@@ -518,48 +472,35 @@ onMounted(() => {
           </template>
         </template>
 
-        <button
-          type="submit"
-          :disabled="isSubmitting"
-          class="mt-2 inline-flex items-center justify-center rounded-xl bg-teal-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <button type="submit" :disabled="isSubmitting" class="chrome-btn chrome-btn-primary mt-1">
           {{ isSubmitting ? "Saving..." : "Save Connection" }}
         </button>
       </form>
 
-      <p class="mt-3 text-sm text-slate-600" v-if="feedback">{{ feedback }}</p>
+      <p v-if="feedback" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
     </section>
 
-    <section class="panel-tight lumdara-scroll min-h-0 overflow-auto p-4">
-      <h2 class="font-display text-lg font-semibold tracking-tight text-slate-900">Saved Connections</h2>
+    <section class="panel-tight lumdara-scroll min-h-0 overflow-auto p-3">
+      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Saved Profiles</h2>
 
-      <div
-        v-if="store.profiles.length === 0"
-        class="mt-4 rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500"
-      >
-        No saved connections yet.
-      </div>
+      <div v-if="store.profiles.length === 0" class="chrome-empty mt-3 p-4 text-xs">No saved connections yet.</div>
 
-      <ul v-else class="mt-4 m-0 list-none space-y-2 p-0">
+      <ul v-else class="mt-3 m-0 list-none space-y-2 p-0">
         <li
           v-for="profile in store.profiles"
           :key="profile.id"
-          class="flex items-center justify-between rounded-xl border border-slate-200 bg-white/90 px-3 py-2"
+          class="flex items-center justify-between border border-[var(--chrome-border)] bg-[#0f141d] px-2.5 py-2"
         >
-          <button
-            type="button"
-            class="flex min-w-0 items-center gap-3 text-left"
-            @click="store.setActiveConnection(profile.id)"
-          >
+          <button type="button" class="flex min-w-0 items-center gap-2 text-left" @click="store.setActiveConnection(profile.id)">
             <component
               :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
               :size="15"
-              :class="profile.target.kind === 'desktop-tcp' ? 'text-teal-700' : 'text-orange-700'"
+              :class="profile.target.kind === 'desktop-tcp' ? 'text-[var(--chrome-red)]' : 'text-[var(--chrome-yellow)]'"
             />
 
             <div class="min-w-0">
-              <p class="truncate text-sm font-semibold text-slate-900">{{ profile.name }}</p>
-              <p class="truncate text-xs text-slate-500">
+              <p class="truncate text-sm font-semibold text-[var(--chrome-ink)]">{{ profile.name }}</p>
+              <p class="truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
                 {{ profile.target.kind === "desktop-tcp" ? profile.target.host : profile.target.provider }}
               </p>
             </div>
@@ -569,15 +510,11 @@ onMounted(() => {
             <component
               :is="store.activeConnectionId === profile.id ? CheckCircle2 : Circle"
               :size="16"
-              :class="store.activeConnectionId === profile.id ? 'text-emerald-600' : 'text-slate-300'"
+              :class="store.activeConnectionId === profile.id ? 'text-[var(--chrome-green)]' : 'text-[var(--chrome-ink-muted)]'"
             />
 
-            <button
-              type="button"
-              class="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-700"
-              @click="removeConnection(profile.id)"
-            >
-              <Trash2 :size="15" />
+            <button type="button" class="chrome-btn chrome-btn-danger !p-1.5" @click="removeConnection(profile.id)">
+              <Trash2 :size="13" />
             </button>
           </div>
         </li>

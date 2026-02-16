@@ -23,43 +23,47 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-3">
-    <section class="panel-tight flex items-center justify-between px-3 py-2">
-      <div class="flex min-w-0 items-center gap-1">
+  <div class="flex min-h-full flex-1 flex-col gap-2">
+    <section class="panel-tight flex items-center justify-between px-2 py-1.5">
+      <div class="flex min-w-0 items-center gap-1 overflow-auto">
         <button
           v-for="tab in workbenchStore.tabs"
           :key="tab.id"
           type="button"
           :class="[
-            'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition',
+            'inline-flex items-center gap-2 border px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
             tab.id === workbenchStore.activeTabId
-              ? 'bg-teal-700 text-white'
-              : 'bg-white text-slate-700 hover:bg-slate-100',
+              ? 'border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] text-[var(--chrome-ink)]'
+              : 'border-[var(--chrome-border)] bg-[#11161f] text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:text-[var(--chrome-ink)]',
           ]"
           @click="workbenchStore.setActiveTab(tab.id)"
         >
           <span class="max-w-28 truncate">{{ tab.title }}</span>
-          <X :size="12" class="opacity-80" @click.stop="workbenchStore.closeTab(tab.id)" />
+          <X
+            :size="12"
+            class="opacity-80"
+            @click.stop="workbenchStore.closeTab(tab.id)"
+          />
         </button>
       </div>
 
       <button
         type="button"
-        class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+        class="chrome-btn inline-flex items-center gap-1.5"
         @click="workbenchStore.addTab"
       >
-        <Plus :size="14" />
+        <Plus :size="13" />
         New Query
       </button>
     </section>
 
-    <Splitpanes class="default-theme flex min-h-0 flex-1 gap-3">
-      <Pane :size="22" :min-size="16">
+    <Splitpanes class="default-theme flex min-h-0 flex-1 gap-2">
+      <Pane :size="23" :min-size="15">
         <SchemaTree />
       </Pane>
 
-      <Pane :size="78" :min-size="50">
-        <Splitpanes horizontal class="default-theme flex min-h-0 flex-1 gap-3">
+      <Pane :size="77" :min-size="45">
+        <Splitpanes horizontal class="default-theme flex min-h-0 flex-1 gap-2">
           <Pane :size="46" :min-size="28">
             <SqlEditorPane
               v-model="activeSql"
@@ -69,8 +73,11 @@ watch(
             />
           </Pane>
 
-          <Pane :size="54" :min-size="30">
-            <ResultsGrid :result="workbenchStore.activeResult" :error-message="workbenchStore.errorMessage" />
+          <Pane :size="54" :min-size="28">
+            <ResultsGrid
+              :result="workbenchStore.activeResult"
+              :error-message="workbenchStore.errorMessage"
+            />
           </Pane>
         </Splitpanes>
       </Pane>
