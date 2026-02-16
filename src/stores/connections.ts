@@ -13,17 +13,33 @@ const desktopTargetSchema = z.object({
   user: z.string().min(1, "User is required"),
 });
 
-const webTargetSchema = z.object({
+const neonTargetSchema = z.object({
   kind: z.literal("web-provider"),
-  dialect: z.enum(["postgres", "mysql"]),
-  provider: z.string().min(2, "Provider is required"),
-  endpoint: z.string().url("Endpoint must be a valid URL"),
+  dialect: z.literal("postgres"),
+  provider: z.literal("neon"),
+  endpoint: z.string().min(1, "Endpoint is required"),
+  projectId: z.string().optional(),
+});
+
+const postgresTargetSchema = z.object({
+  kind: z.literal("web-provider"),
+  dialect: z.literal("postgres"),
+  provider: z.literal("postgres"),
+  endpoint: z.string().min(1, "Endpoint is required"),
+  projectId: z.string().optional(),
+});
+
+const planetScaleTargetSchema = z.object({
+  kind: z.literal("web-provider"),
+  dialect: z.literal("mysql"),
+  provider: z.literal("planetscale"),
+  endpoint: z.string().min(1, "Endpoint is required"),
   projectId: z.string().optional(),
 });
 
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
-  target: z.discriminatedUnion("kind", [desktopTargetSchema, webTargetSchema]),
+  target: z.union([desktopTargetSchema, postgresTargetSchema, neonTargetSchema, planetScaleTargetSchema]),
 });
 
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
@@ -36,7 +52,9 @@ export const useConnectionsStore = defineStore("connections", () => {
     profiles.value.find((profile) => profile.id === activeConnectionId.value) ?? null,
   );
 
-  function addConnection(input: NewConnectionInput): { ok: true } | { ok: false; message: string } {
+  function addConnection(
+    input: NewConnectionInput,
+  ): { ok: true; profile: ConnectionProfile } | { ok: false; message: string } {
     const parsed = newConnectionSchema.safeParse(input);
 
     if (!parsed.success) {
@@ -61,7 +79,7 @@ export const useConnectionsStore = defineStore("connections", () => {
       activeConnectionId.value = profile.id;
     }
 
-    return { ok: true };
+    return { ok: true, profile };
   }
 
   function removeConnection(id: string): void {

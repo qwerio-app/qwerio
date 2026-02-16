@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { Cable, DatabaseZap, PanelsTopLeft, Settings } from "lucide-vue-next";
+import { Cable, Database, PanelsTopLeft, Settings } from "lucide-vue-next";
 import { useUiStore } from "../../stores/ui";
 
 const route = useRoute();
@@ -13,18 +13,28 @@ const links = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-const sidebarWidthClass = computed(() => (uiStore.sidebarCollapsed ? "w-[84px]" : "w-[252px]"));
+const sidebarWidthClass = computed(() =>
+  uiStore.sidebarCollapsed ? "w-[84px]" : "w-[252px]",
+);
 </script>
 
 <template>
   <aside :class="['panel hidden flex-col p-3 md:flex', sidebarWidthClass]">
     <button
       type="button"
-      class="mb-4 flex items-center gap-2 rounded-xl border border-black/10 bg-white/85 px-3 py-2 text-left transition hover:bg-white"
+      class="mb-4 flex items-center gap-2 rounded-xl border border-black/10 bg-white/85 px-2 py-2 text-left transition hover:bg-white"
       @click="uiStore.toggleSidebar"
     >
-      <DatabaseZap :size="18" class="shrink-0 text-emerald-700" />
-      <span v-if="!uiStore.sidebarCollapsed" class="font-display text-base font-semibold tracking-tight">Lumdara</span>
+      <div
+        class="shrink-0 flex size-9 items-center justify-center rounded-lg border border-black/10 bg-gradient-to-br from-emerald-100 to-orange-100 text-emerald-700"
+      >
+        <Database :size="18" />
+      </div>
+      <span
+        v-if="!uiStore.sidebarCollapsed"
+        class="font-display text-base font-semibold tracking-tight"
+        >Lumdara</span
+      >
     </button>
 
     <nav class="flex flex-1 flex-col gap-1">
@@ -44,7 +54,10 @@ const sidebarWidthClass = computed(() => (uiStore.sidebarCollapsed ? "w-[84px]" 
       </RouterLink>
     </nav>
 
-    <div class="panel-tight mt-3 px-3 py-2 text-xs text-slate-600" v-if="!uiStore.sidebarCollapsed">
+    <div
+      class="panel-tight mt-3 px-3 py-2 text-xs text-slate-600"
+      v-if="!uiStore.sidebarCollapsed"
+    >
       Browser mode supports cloud providers with HTTP SQL endpoints.
     </div>
   </aside>

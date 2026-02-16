@@ -13,10 +13,46 @@ export type ConnectionTarget =
     }
   | {
       kind: "web-provider";
-      dialect: DbDialect;
-      provider: string;
+      dialect: "postgres";
+      provider: "postgres";
       endpoint: string;
       projectId?: string;
+    }
+  | {
+      kind: "web-provider";
+      dialect: "postgres";
+      provider: "neon";
+      endpoint: string;
+      projectId?: string;
+    }
+  | {
+      kind: "web-provider";
+      dialect: "mysql";
+      provider: "planetscale";
+      endpoint: string;
+      projectId?: string;
+    };
+
+export type ConnectionSecret =
+  | {
+      kind: "desktop-tcp";
+      password?: string;
+    }
+  | {
+      kind: "web-provider";
+      provider: "postgres";
+      connectionString: string;
+    }
+  | {
+      kind: "web-provider";
+      provider: "neon";
+      connectionString: string;
+    }
+  | {
+      kind: "web-provider";
+      provider: "planetscale";
+      username: string;
+      password: string;
     };
 
 export type ConnectionProfile = {

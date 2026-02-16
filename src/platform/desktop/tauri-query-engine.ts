@@ -1,5 +1,5 @@
 import type { QueryEngine } from "../../core/query-engine";
-import type { QueryRequest, QueryResult } from "../../core/types";
+import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/types";
 
 async function tauriInvoke<T>(command: string, payload: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -7,8 +7,21 @@ async function tauriInvoke<T>(command: string, payload: Record<string, unknown>)
 }
 
 export class TauriQueryEngine implements QueryEngine {
-  async connect(connectionId: string): Promise<void> {
-    await tauriInvoke<void>("db_connect", { connectionId });
+  async connect(connection: ConnectionProfile): Promise<void> {
+    if (connection.target.kind !== "desktop-tcp") {
+      throw new Error("Desktop runtime requires a desktop-tcp connection profile.");
+    }
+
+    await tauriInvoke<void>("db_connect", {
+      connection: {
+        id: connection.id,
+        dialect: connection.target.dialect,
+        host: connection.target.host,
+        port: connection.target.port,
+        database: connection.target.database,
+        user: connection.target.user,
+      },
+    });
   }
 
   async execute(req: QueryRequest): Promise<QueryResult> {

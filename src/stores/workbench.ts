@@ -105,7 +105,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
     try {
       const engine = getQueryEngine();
-      await engine.connect(activeConnection.id);
+      await engine.connect(activeConnection);
 
       const result = await engine.execute({
         connectionId: activeConnection.id,
@@ -132,6 +132,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     }
 
     const engine = getQueryEngine();
+    await engine.connect(activeConnection);
     const schemas = await engine.listSchemas(activeConnection.id);
     schemaNames.value = schemas;
 

@@ -1,7 +1,7 @@
-import type { QueryRequest, QueryResult } from "./types";
+import type { ConnectionProfile, QueryRequest, QueryResult } from "./types";
 
 export interface QueryEngine {
-  connect(connectionId: string): Promise<void>;
+  connect(connection: ConnectionProfile): Promise<void>;
   execute(req: QueryRequest): Promise<QueryResult>;
   cancel(requestId: string): Promise<void>;
   listSchemas(connectionId: string): Promise<Array<{ name: string }>>;
