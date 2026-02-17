@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Database, Dot, Minus, Square, X } from "lucide-vue-next";
+import { Dot, Minus, Square, X } from "lucide-vue-next";
 import AppSidebar from "../components/layout/AppSidebar.vue";
 import { getRuntimeMode } from "../core/query-engine-service";
 import { useConnectionsStore } from "../stores/connections";
@@ -70,13 +70,15 @@ async function closeWindow(): Promise<void> {
       class="panel chrome-panel-header mb-2 flex items-center justify-between px-2.5 py-1.5 md:px-3"
     >
       <div
-        class="flex items-center gap-2.5"
+        class="flex items-center gap-1.5"
         :data-tauri-drag-region="isDesktopRuntime ? '' : undefined"
       >
-        <div
-          class="flex size-8 items-center justify-center border border-[var(--chrome-red)] bg-[#13090b] text-[var(--chrome-red)]"
-        >
-          <Database :size="16" />
+        <div class="overflow-hidden">
+          <img
+            src="/logo.png"
+            alt="Lumdara logo"
+            class="size-10 object-cover"
+          />
         </div>
 
         <div class="leading-none">
