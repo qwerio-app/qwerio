@@ -21,14 +21,6 @@ const neonTargetSchema = z.object({
   projectId: z.string().optional(),
 });
 
-const postgresTargetSchema = z.object({
-  kind: z.literal("web-provider"),
-  dialect: z.literal("postgres"),
-  provider: z.literal("postgres"),
-  endpoint: z.string().min(1, "Endpoint is required"),
-  projectId: z.string().optional(),
-});
-
 const planetScaleTargetSchema = z.object({
   kind: z.literal("web-provider"),
   dialect: z.literal("mysql"),
@@ -39,7 +31,7 @@ const planetScaleTargetSchema = z.object({
 
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
-  target: z.union([desktopTargetSchema, postgresTargetSchema, neonTargetSchema, planetScaleTargetSchema]),
+  target: z.union([desktopTargetSchema, neonTargetSchema, planetScaleTargetSchema]),
 });
 
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
@@ -82,6 +74,46 @@ export const useConnectionsStore = defineStore("connections", () => {
     return { ok: true, profile };
   }
 
+  function updateConnection(
+    id: string,
+    input: NewConnectionInput,
+  ): { ok: true; profile: ConnectionProfile } | { ok: false; message: string } {
+    const parsed = newConnectionSchema.safeParse(input);
+
+    if (!parsed.success) {
+      return {
+        ok: false,
+        message: parsed.error.issues[0]?.message ?? "Invalid connection profile",
+      };
+    }
+
+    const index = profiles.value.findIndex((profile) => profile.id === id);
+
+    if (index === -1) {
+      return {
+        ok: false,
+        message: "Connection profile not found.",
+      };
+    }
+
+    const existingProfile = profiles.value[index];
+    const updatedProfile: ConnectionProfile = {
+      ...existingProfile,
+      name: parsed.data.name,
+      target: parsed.data.target,
+      updatedAt: new Date().toISOString(),
+    };
+
+    profiles.value = profiles.value.map((profile) =>
+      profile.id === id ? updatedProfile : profile,
+    );
+
+    return {
+      ok: true,
+      profile: updatedProfile,
+    };
+  }
+
   function removeConnection(id: string): void {
     profiles.value = profiles.value.filter((profile) => profile.id !== id);
 
@@ -99,6 +131,7 @@ export const useConnectionsStore = defineStore("connections", () => {
     activeConnectionId,
     activeProfile,
     addConnection,
+    updateConnection,
     removeConnection,
     setActiveConnection,
   };

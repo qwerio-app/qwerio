@@ -14,13 +14,6 @@ export type ConnectionTarget =
   | {
       kind: "web-provider";
       dialect: "postgres";
-      provider: "postgres";
-      endpoint: string;
-      projectId?: string;
-    }
-  | {
-      kind: "web-provider";
-      dialect: "postgres";
       provider: "neon";
       endpoint: string;
       projectId?: string;
@@ -37,11 +30,6 @@ export type ConnectionSecret =
   | {
       kind: "desktop-tcp";
       password?: string;
-    }
-  | {
-      kind: "web-provider";
-      provider: "postgres";
-      connectionString: string;
     }
   | {
       kind: "web-provider";

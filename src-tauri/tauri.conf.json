@@ -12,7 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "lumdara",
+        "decorations": false,
+        "transparent": true,
+        "title": "Lumdara",
         "width": 800,
         "height": 600
       }

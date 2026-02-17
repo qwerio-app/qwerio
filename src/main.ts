@@ -5,7 +5,7 @@ import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import App from "./App.vue";
 import router from "./router";
 import { queryClient } from "./lib/query-client";
-import "./styles/main.css";
+import "./assets/main.css";
 import "splitpanes/dist/splitpanes.css";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";

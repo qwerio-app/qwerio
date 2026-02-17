@@ -1,25 +1,43 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
-import { CheckCircle2, Circle, Globe2, Lock, Monitor, Trash2, Unlock } from "lucide-vue-next";
+import { computed, onMounted, reactive, ref } from "vue";
+import {
+  CheckCircle2,
+  Circle,
+  FlaskConical,
+  Globe2,
+  Lock,
+  Monitor,
+  Pencil,
+  Trash2,
+  Unlock,
+} from "lucide-vue-next";
 import {
   deleteConnectionSecret,
   getWebSecretVaultStatus,
+  loadConnectionSecret,
   lockWebSecretVault,
   storeConnectionSecret,
   unlockWebSecretVault,
 } from "../core/secret-vault";
-import { getRuntimeMode } from "../core/query-engine-service";
-import type { ConnectionSecret, ConnectionTarget, DbDialect } from "../core/types";
+import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
+import type { ConnectionProfile, ConnectionSecret, ConnectionTarget, DbDialect } from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
+
+const TEST_CONNECTION_ID = "lumdara-connection-test";
 
 const store = useConnectionsStore();
 
 const feedback = ref("");
 const isSubmitting = ref(false);
+const isTesting = ref(false);
 const runtimeMode = getRuntimeMode();
 const isWebRuntime = runtimeMode === "web";
 const vaultPassphrase = ref("");
 const vaultStatus = ref(getWebSecretVaultStatus());
+const editingConnectionId = ref<string | null>(null);
+const editingSecret = ref<ConnectionSecret | null>(null);
+
+const isEditing = computed(() => Boolean(editingConnectionId.value));
 
 const form = reactive({
   name: "",
@@ -30,39 +48,14 @@ const form = reactive({
   database: "",
   user: "",
   password: "",
-  provider: "postgres" as Extract<ConnectionTarget, { kind: "web-provider" }>["provider"],
+  provider: "neon" as Extract<ConnectionTarget, { kind: "web-provider" }>["provider"],
+  neonInputMode: "connection-details" as "connection-details" | "connection-string",
   endpoint: "",
   projectId: "",
-  postgresAuthMode: "connection-string" as "connection-string" | "fields",
   connectionString: "",
-  postgresHost: "",
-  postgresPort: 5432,
-  postgresDatabase: "",
-  postgresUser: "",
-  postgresPassword: "",
-  postgresSslMode: "require" as "require" | "prefer" | "disable",
   providerUsername: "",
   providerPassword: "",
 });
-
-function buildPostgresConnectionStringFromFields(): string | null {
-  if (!form.postgresHost || !form.postgresDatabase || !form.postgresUser) {
-    feedback.value = "Host, database, and user are required for Postgres field mode.";
-    return null;
-  }
-
-  const encodedUser = encodeURIComponent(form.postgresUser);
-  const encodedPassword = encodeURIComponent(form.postgresPassword);
-  const encodedDatabase = encodeURIComponent(form.postgresDatabase);
-  const auth = form.postgresPassword ? `${encodedUser}:${encodedPassword}` : encodedUser;
-  const base = `postgresql://${auth}@${form.postgresHost}:${Number(form.postgresPort)}/${encodedDatabase}`;
-
-  if (form.postgresSslMode === "prefer") {
-    return base;
-  }
-
-  return `${base}?sslmode=${form.postgresSslMode}`;
-}
 
 function refreshVaultStatus(): void {
   vaultStatus.value = getWebSecretVaultStatus();
@@ -94,6 +87,33 @@ function lockVault(): void {
   feedback.value = "Web secret vault locked.";
 }
 
+async function ensureWebVaultUnlockedFor(action: "save" | "test"): Promise<boolean> {
+  if (!isWebRuntime) {
+    return true;
+  }
+
+  if (vaultStatus.value.unlocked) {
+    return true;
+  }
+
+  if (!vaultPassphrase.value) {
+    feedback.value =
+      action === "save"
+        ? "Unlock the web secret vault with your passphrase before saving web connections."
+        : "Unlock the web secret vault with your passphrase before testing web connections.";
+    return false;
+  }
+
+  try {
+    await unlockWebSecretVault(vaultPassphrase.value);
+    refreshVaultStatus();
+    return true;
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : "Unable to unlock web secret vault.";
+    return false;
+  }
+}
+
 function toConnectionTarget(): ConnectionTarget {
   if (form.kind === "desktop-tcp") {
     return {
@@ -111,7 +131,7 @@ function toConnectionTarget(): ConnectionTarget {
       kind: "web-provider",
       dialect: "mysql",
       provider: "planetscale",
-      endpoint: form.endpoint,
+      endpoint: form.endpoint.trim(),
       projectId: form.projectId || undefined,
     };
   }
@@ -120,17 +140,86 @@ function toConnectionTarget(): ConnectionTarget {
     kind: "web-provider",
     dialect: "postgres",
     provider: form.provider,
-    endpoint:
-      form.provider === "neon"
-        ? form.endpoint || "neon-http"
-        : form.postgresAuthMode === "fields"
-          ? form.postgresHost || "postgres-http"
-          : form.endpoint || "postgres-http",
+    endpoint: form.endpoint.trim() || "default",
     projectId: form.projectId || undefined,
   };
 }
 
-function toConnectionSecret(target: ConnectionTarget): ConnectionSecret | null {
+function toUrlHost(rawHost: string, port: number): string {
+  const unwrappedHost = rawHost.trim().replace(/^\[/, "").replace(/\]$/, "");
+  const hostSegments = unwrappedHost.split(":");
+  const hostWithoutPort =
+    hostSegments.length === 2 && /^\d+$/.test(hostSegments[1]) ? hostSegments[0] : unwrappedHost;
+
+  if (hostWithoutPort.includes(":")) {
+    return `[${hostWithoutPort}]:${port}`;
+  }
+
+  return `${hostWithoutPort}:${port}`;
+}
+
+function buildPostgresConnectionStringFromFields(): string | null {
+  const host = form.host.trim();
+  const database = form.database.trim();
+  const user = form.user.trim();
+  const port = Number(form.port);
+
+  if (!host || !database || !user) {
+    feedback.value = "Host, database, and user are required for Neon Postgres details mode.";
+    return null;
+  }
+
+  if (!Number.isFinite(port) || port <= 0) {
+    feedback.value = "Port must be a positive number.";
+    return null;
+  }
+
+  const url = new URL("postgresql://localhost");
+  url.username = user;
+  url.password = form.password;
+  url.host = toUrlHost(host, port);
+  url.pathname = `/${database}`;
+
+  return url.toString();
+}
+
+function resolveNeonConnectionString(allowExistingSecret = false): string | null {
+  if (form.neonInputMode === "connection-string") {
+    if (form.connectionString.trim()) {
+      return form.connectionString.trim();
+    }
+
+    if (
+      allowExistingSecret &&
+      editingSecret.value?.kind === "web-provider" &&
+      editingSecret.value.provider === "neon"
+    ) {
+      return editingSecret.value.connectionString;
+    }
+
+    feedback.value = "Neon connection string is required.";
+    return null;
+  }
+
+  const connectionString = buildPostgresConnectionStringFromFields();
+
+  if (connectionString) {
+    return connectionString;
+  }
+
+  if (
+    allowExistingSecret &&
+    editingSecret.value?.kind === "web-provider" &&
+    editingSecret.value.provider === "neon"
+  ) {
+    feedback.value = "";
+    return editingSecret.value.connectionString;
+  }
+
+  return null;
+}
+
+function toConnectionSecret(target: ConnectionTarget, allowExistingSecret = false): ConnectionSecret | null {
   if (target.kind === "desktop-tcp") {
     return {
       kind: "desktop-tcp",
@@ -139,64 +228,222 @@ function toConnectionSecret(target: ConnectionTarget): ConnectionSecret | null {
   }
 
   if (target.provider === "planetscale") {
-    if (!form.providerUsername || !form.providerPassword) {
-      feedback.value = "PlanetScale username and password are required.";
-      return null;
+    if (form.providerUsername && form.providerPassword) {
+      return {
+        kind: "web-provider",
+        provider: "planetscale",
+        username: form.providerUsername,
+        password: form.providerPassword,
+      };
     }
 
-    return {
-      kind: "web-provider",
-      provider: "planetscale",
-      username: form.providerUsername,
-      password: form.providerPassword,
-    };
-  }
-
-  if (target.provider === "postgres" && form.postgresAuthMode === "fields") {
-    const connectionString = buildPostgresConnectionStringFromFields();
-
-    if (!connectionString) {
-      return null;
+    if (
+      allowExistingSecret &&
+      editingSecret.value?.kind === "web-provider" &&
+      editingSecret.value.provider === "planetscale"
+    ) {
+      return editingSecret.value;
     }
 
-    return {
-      kind: "web-provider",
-      provider: "postgres",
-      connectionString,
-    };
+    feedback.value = "PlanetScale username and password are required.";
+    return null;
   }
 
-  if (!form.connectionString) {
-    feedback.value =
-      target.provider === "neon" ? "Neon connection string is required." : "Postgres connection string is required.";
+  const connectionString = resolveNeonConnectionString(allowExistingSecret);
+
+  if (!connectionString) {
     return null;
   }
 
   return {
     kind: "web-provider",
     provider: target.provider,
-    connectionString: form.connectionString,
+    connectionString,
   };
 }
 
 function resetForm(): void {
+  editingConnectionId.value = null;
+  editingSecret.value = null;
   form.name = "";
+  form.kind = isWebRuntime ? "web-provider" : "desktop-tcp";
+  form.dialect = "postgres";
   form.host = "";
+  form.port = 5432;
   form.database = "";
   form.user = "";
   form.password = "";
+  form.provider = "neon";
+  form.neonInputMode = "connection-details";
   form.endpoint = "";
   form.projectId = "";
-  form.postgresAuthMode = "connection-string";
   form.connectionString = "";
-  form.postgresHost = "";
-  form.postgresPort = 5432;
-  form.postgresDatabase = "";
-  form.postgresUser = "";
-  form.postgresPassword = "";
-  form.postgresSslMode = "require";
   form.providerUsername = "";
   form.providerPassword = "";
+}
+
+function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
+  try {
+    const url = new URL(connectionString);
+    const database = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+
+    if (!url.hostname || !database || !url.username || !["postgres:", "postgresql:"].includes(url.protocol)) {
+      throw new Error("invalid");
+    }
+
+    form.neonInputMode = "connection-details";
+    form.host = url.hostname;
+    form.port = url.port ? Number(url.port) : 5432;
+    form.database = database;
+    form.user = decodeURIComponent(url.username);
+    form.password = decodeURIComponent(url.password);
+    form.connectionString = "";
+    return;
+  } catch {
+    form.neonInputMode = "connection-string";
+    form.connectionString = connectionString;
+    form.host = "";
+    form.port = 5432;
+    form.database = "";
+    form.user = "";
+    form.password = "";
+  }
+}
+
+function hydrateFormFromProfile(profile: ConnectionProfile, secret: ConnectionSecret | null): void {
+  form.name = profile.name;
+  form.host = "";
+  form.port = 5432;
+  form.database = "";
+  form.user = "";
+  form.password = "";
+  form.provider = "neon";
+  form.neonInputMode = "connection-details";
+  form.endpoint = "";
+  form.projectId = "";
+  form.connectionString = "";
+  form.providerUsername = "";
+  form.providerPassword = "";
+
+  if (profile.target.kind === "desktop-tcp") {
+    form.kind = "desktop-tcp";
+    form.dialect = profile.target.dialect;
+    form.host = profile.target.host;
+    form.port = profile.target.port;
+    form.database = profile.target.database;
+    form.user = profile.target.user;
+
+    if (secret?.kind === "desktop-tcp") {
+      form.password = secret.password ?? "";
+    }
+
+    return;
+  }
+
+  form.kind = "web-provider";
+  form.dialect = profile.target.dialect;
+  form.provider = profile.target.provider;
+  form.endpoint = profile.target.endpoint;
+  form.projectId = profile.target.projectId ?? "";
+
+  if (profile.target.provider === "planetscale") {
+    if (secret?.kind === "web-provider" && secret.provider === "planetscale") {
+      form.providerUsername = secret.username;
+      form.providerPassword = secret.password;
+    }
+
+    return;
+  }
+
+  if (secret?.kind === "web-provider" && secret.provider === "neon") {
+    hydrateNeonFieldsFromConnectionString(secret.connectionString);
+  }
+}
+
+async function startEditConnection(connectionId: string): Promise<void> {
+  feedback.value = "";
+  const profile = store.profiles.find((item) => item.id === connectionId);
+
+  if (!profile) {
+    feedback.value = "Connection profile not found.";
+    return;
+  }
+
+  editingConnectionId.value = profile.id;
+  editingSecret.value = null;
+  hydrateFormFromProfile(profile, null);
+
+  try {
+    const secret = await loadConnectionSecret(profile.id);
+    editingSecret.value = secret;
+    hydrateFormFromProfile(profile, secret);
+
+    if (!secret) {
+      feedback.value = "No credentials found. Enter credentials and save to restore this profile.";
+    }
+  } catch (error) {
+    feedback.value =
+      error instanceof Error
+        ? `${error.message} Enter credentials and save to update this profile.`
+        : "Unable to load stored credentials. Enter credentials and save to update this profile.";
+  }
+}
+
+function cancelEditing(): void {
+  feedback.value = "";
+  resetForm();
+}
+
+async function testConnection(): Promise<void> {
+  feedback.value = "";
+  isTesting.value = true;
+  let shouldDeleteTestSecret = false;
+
+  try {
+    const target = toConnectionTarget();
+    const secret = toConnectionSecret(target, isEditing.value);
+
+    if (!secret) {
+      return;
+    }
+
+    if (target.kind === "web-provider" && !(await ensureWebVaultUnlockedFor("test"))) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const testProfile: ConnectionProfile = {
+      id: TEST_CONNECTION_ID,
+      name: form.name.trim() || "Connection Test",
+      target,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await storeConnectionSecret(TEST_CONNECTION_ID, secret);
+    shouldDeleteTestSecret = true;
+
+    const engine = getQueryEngine();
+    await engine.connect(testProfile);
+    await engine.execute({
+      connectionId: TEST_CONNECTION_ID,
+      sql: "SELECT 1 AS connection_test",
+    });
+
+    feedback.value = "Connection test succeeded.";
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : "Connection test failed.";
+  } finally {
+    if (shouldDeleteTestSecret) {
+      try {
+        await deleteConnectionSecret(TEST_CONNECTION_ID);
+      } catch {
+        // Best effort cleanup for temporary test credentials.
+      }
+    }
+
+    isTesting.value = false;
+  }
 }
 
 async function submitConnection(): Promise<void> {
@@ -205,20 +452,54 @@ async function submitConnection(): Promise<void> {
 
   try {
     const target = toConnectionTarget();
-    const secret = toConnectionSecret(target);
+    const secret = toConnectionSecret(target, isEditing.value);
 
     if (!secret) {
       return;
     }
 
-    if (isWebRuntime && target.kind === "web-provider" && !vaultStatus.value.unlocked) {
-      if (!vaultPassphrase.value) {
-        feedback.value = "Unlock the web secret vault with your passphrase before saving web connections.";
+    if (target.kind === "web-provider" && !(await ensureWebVaultUnlockedFor("save"))) {
+      return;
+    }
+
+    const editingId = editingConnectionId.value;
+
+    if (editingId) {
+      const previousProfile = store.profiles.find((profile) => profile.id === editingId);
+
+      if (!previousProfile) {
+        feedback.value = "Connection profile not found.";
         return;
       }
 
-      await unlockWebSecretVault(vaultPassphrase.value);
-      refreshVaultStatus();
+      const rollbackInput = {
+        name: previousProfile.name,
+        target: previousProfile.target,
+      };
+
+      const updateResult = store.updateConnection(editingId, {
+        name: form.name,
+        target,
+      });
+
+      if (!updateResult.ok) {
+        feedback.value = updateResult.message;
+        return;
+      }
+
+      try {
+        await storeConnectionSecret(editingId, secret);
+      } catch (error) {
+        store.updateConnection(editingId, rollbackInput);
+        feedback.value =
+          error instanceof Error ? error.message : "Failed to store connection credentials securely.";
+        return;
+      }
+
+      store.setActiveConnection(editingId);
+      feedback.value = "Connection updated with encrypted credentials.";
+      resetForm();
+      return;
     }
 
     const result = store.addConnection({
@@ -256,6 +537,10 @@ async function removeConnection(id: string): Promise<void> {
   try {
     await deleteConnectionSecret(id);
     store.removeConnection(id);
+
+    if (editingConnectionId.value === id) {
+      resetForm();
+    }
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "Unable to remove connection.";
   }
@@ -271,7 +556,11 @@ onMounted(() => {
     <section class="panel-tight lumdara-scroll overflow-auto p-3">
       <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connection Provisioning</h2>
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-        Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode requires provider HTTP adapters.
+        Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres, PlanetScale HTTP for MySQL).
+      </p>
+
+      <p v-if="isEditing" class="mt-2 text-xs text-[var(--chrome-yellow)]">
+        Editing profile. Test and save to apply updates.
       </p>
 
       <div v-if="isWebRuntime" class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
@@ -362,8 +651,7 @@ onMounted(() => {
           <label class="chrome-label">
             <span>Provider</span>
             <select v-model="form.provider" class="chrome-input mt-1">
-              <option value="postgres">Postgres (Standard)</option>
-              <option value="neon">Neon (Postgres HTTP)</option>
+              <option value="neon">Neon Serverless (Postgres via wsproxy)</option>
               <option value="planetscale">PlanetScale (MySQL HTTP)</option>
             </select>
           </label>
@@ -392,89 +680,97 @@ onMounted(() => {
             </div>
           </template>
 
-          <template v-else-if="form.provider === 'postgres'">
+          <template v-else>
             <label class="chrome-label">
-              <span>Postgres Credential Format</span>
-              <select v-model="form.postgresAuthMode" class="chrome-input mt-1">
+              <span>WebSocket Proxy Endpoint (optional)</span>
+              <input
+                v-model="form.endpoint"
+                class="chrome-input mt-1"
+                type="text"
+                placeholder="localhost:6543/v1"
+              />
+            </label>
+
+            <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
+              For local Postgres in browser mode, run wsproxy and set it here (for example `localhost:6543/v1`).
+            </p>
+
+            <label class="chrome-label">
+              <span>Postgres Input Mode</span>
+              <select v-model="form.neonInputMode" class="chrome-input mt-1">
+                <option value="connection-details">Separate Fields</option>
                 <option value="connection-string">Connection String</option>
-                <option value="fields">Separate Fields</option>
               </select>
             </label>
 
-            <template v-if="form.postgresAuthMode === 'connection-string'">
-              <label class="chrome-label">
-                <span>Postgres Connection String</span>
-                <input
-                  v-model="form.connectionString"
-                  class="chrome-input mt-1"
-                  type="password"
-                  placeholder="postgresql://user:password@host/database"
-                />
-              </label>
-            </template>
-
-            <template v-else>
+            <template v-if="form.neonInputMode === 'connection-details'">
               <label class="chrome-label">
                 <span>Host</span>
-                <input
-                  v-model="form.postgresHost"
-                  class="chrome-input mt-1"
-                  type="text"
-                  placeholder="db.example.com"
-                />
+                <input v-model="form.host" class="chrome-input mt-1" type="text" placeholder="localhost" />
               </label>
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="chrome-label">
                   <span>Port</span>
-                  <input v-model.number="form.postgresPort" class="chrome-input mt-1" type="number" />
+                  <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
                 </label>
 
                 <label class="chrome-label">
                   <span>Database</span>
-                  <input v-model="form.postgresDatabase" class="chrome-input mt-1" type="text" />
-                </label>
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
-                <label class="chrome-label">
-                  <span>User</span>
-                  <input v-model="form.postgresUser" class="chrome-input mt-1" type="text" />
-                </label>
-
-                <label class="chrome-label">
-                  <span>Password</span>
-                  <input v-model="form.postgresPassword" class="chrome-input mt-1" type="password" />
+                  <input v-model="form.database" class="chrome-input mt-1" type="text" />
                 </label>
               </div>
 
               <label class="chrome-label">
-                <span>SSL Mode</span>
-                <select v-model="form.postgresSslMode" class="chrome-input mt-1">
-                  <option value="require">require</option>
-                  <option value="prefer">prefer</option>
-                  <option value="disable">disable</option>
-                </select>
+                <span>User</span>
+                <input v-model="form.user" class="chrome-input mt-1" type="text" />
+              </label>
+
+              <label class="chrome-label">
+                <span>Password (optional)</span>
+                <input v-model="form.password" class="chrome-input mt-1" type="password" />
+              </label>
+            </template>
+
+            <template v-else>
+              <label class="chrome-label">
+                <span>Neon Connection String</span>
+                <input
+                  v-model="form.connectionString"
+                  class="chrome-input mt-1"
+                  type="password"
+                  placeholder="postgresql://user:password@ep-...neon.tech/database"
+                />
               </label>
             </template>
           </template>
-
-          <template v-else>
-            <label class="chrome-label">
-              <span>Neon Connection String</span>
-              <input
-                v-model="form.connectionString"
-                class="chrome-input mt-1"
-                type="password"
-                placeholder="postgresql://user:password@ep-...neon.tech/database"
-              />
-            </label>
-          </template>
         </template>
 
-        <button type="submit" :disabled="isSubmitting" class="chrome-btn chrome-btn-primary mt-1">
-          {{ isSubmitting ? "Saving..." : "Save Connection" }}
-        </button>
+        <div class="mt-1 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="chrome-btn inline-flex items-center gap-1"
+            :disabled="isSubmitting || isTesting"
+            @click="testConnection"
+          >
+            <FlaskConical :size="12" />
+            {{ isTesting ? "Testing..." : "Test Connection" }}
+          </button>
+
+          <button type="submit" :disabled="isSubmitting || isTesting" class="chrome-btn chrome-btn-primary">
+            {{ isSubmitting ? (isEditing ? "Updating..." : "Saving...") : (isEditing ? "Update Connection" : "Save Connection") }}
+          </button>
+
+          <button
+            v-if="isEditing"
+            type="button"
+            class="chrome-btn"
+            :disabled="isSubmitting || isTesting"
+            @click="cancelEditing"
+          >
+            Cancel
+          </button>
+        </div>
       </form>
 
       <p v-if="feedback" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
@@ -513,7 +809,21 @@ onMounted(() => {
               :class="store.activeConnectionId === profile.id ? 'text-[var(--chrome-green)]' : 'text-[var(--chrome-ink-muted)]'"
             />
 
-            <button type="button" class="chrome-btn chrome-btn-danger !p-1.5" @click="removeConnection(profile.id)">
+            <button
+              type="button"
+              class="chrome-btn !p-1.5"
+              :disabled="isSubmitting || isTesting"
+              @click="startEditConnection(profile.id)"
+            >
+              <Pencil :size="13" />
+            </button>
+
+            <button
+              type="button"
+              class="chrome-btn chrome-btn-danger !p-1.5"
+              :disabled="isSubmitting || isTesting"
+              @click="removeConnection(profile.id)"
+            >
               <Trash2 :size="13" />
             </button>
           </div>

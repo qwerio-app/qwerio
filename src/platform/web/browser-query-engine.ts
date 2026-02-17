@@ -1,7 +1,7 @@
 import type { QueryEngine } from "../../core/query-engine";
 import { loadConnectionSecret } from "../../core/secret-vault";
 import type { ConnectionProfile, ConnectionSecret, QueryRequest, QueryResult } from "../../core/types";
-import { PostgresHttpAdapter } from "./providers/postgres-http-adapter";
+import { NeonServerlessAdapter } from "./providers/neon-adapter";
 import { PlanetScaleAdapter } from "./providers/planetscale-adapter";
 import type { ProviderAdapter } from "./providers/provider-adapter";
 
@@ -65,19 +65,12 @@ export class BrowserQueryEngine implements QueryEngine {
     }
 
     switch (connection.target.provider) {
-      case "postgres": {
-        if (secret.provider !== "postgres") {
-          throw new Error("This Postgres HTTP connection is missing a connection string.");
-        }
-
-        return new PostgresHttpAdapter(secret.connectionString);
-      }
       case "neon": {
         if (secret.provider !== "neon") {
           throw new Error("This Neon connection is missing Neon credentials.");
         }
 
-        return new PostgresHttpAdapter(secret.connectionString);
+        return new NeonServerlessAdapter(secret.connectionString, connection.target.endpoint);
       }
       case "planetscale": {
         if (secret.provider !== "planetscale") {
