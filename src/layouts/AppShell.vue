@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Dot, Minus, Square, X } from "lucide-vue-next";
+import { Minus, Monitor, Square, X } from "lucide-vue-next";
 import AppSidebar from "../components/layout/AppSidebar.vue";
 import { getRuntimeMode } from "../core/query-engine-service";
 import { useConnectionsStore } from "../stores/connections";
 import { useUiStore } from "../stores/ui";
+import SettingsView from "../views/SettingsView.vue";
 
 const connectionsStore = useConnectionsStore();
 const uiStore = useUiStore();
@@ -14,22 +15,15 @@ const isDesktopRuntime = runtimeMode === "desktop";
 const desktopWindow = isDesktopRuntime ? getCurrentWindow() : null;
 
 const activeConnectionLabel = computed(() => {
-  const active = connectionsStore.activeProfile;
-
-  if (!active) {
-    return "NO ACTIVE CONNECTION";
-  }
-
-  if (active.target.kind === "desktop-tcp") {
-    return `${active.target.host}:${active.target.port}`;
-  }
-
-  return active.target.endpoint;
+  return connectionsStore.activeProfile?.name ?? "none selected";
 });
 
 const activeConnectionState = computed(() =>
   Boolean(connectionsStore.activeProfile),
 );
+
+const isSystemStatusOpen = ref(false);
+const systemStatusMenuRef = ref<HTMLElement | null>(null);
 
 const workspaceGridClass = computed(() =>
   uiStore.sidebarCollapsed
@@ -60,6 +54,42 @@ async function closeWindow(): Promise<void> {
 
   await desktopWindow.close();
 }
+
+function toggleSystemStatusMenu(): void {
+  isSystemStatusOpen.value = !isSystemStatusOpen.value;
+}
+
+function closeSystemStatusMenu(): void {
+  isSystemStatusOpen.value = false;
+}
+
+function handleDocumentPointerDown(event: MouseEvent): void {
+  const eventTarget = event.target;
+
+  if (!(eventTarget instanceof Node)) {
+    return;
+  }
+
+  if (!systemStatusMenuRef.value?.contains(eventTarget)) {
+    closeSystemStatusMenu();
+  }
+}
+
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    closeSystemStatusMenu();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("mousedown", handleDocumentPointerDown);
+  document.addEventListener("keydown", handleDocumentKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", handleDocumentPointerDown);
+  document.removeEventListener("keydown", handleDocumentKeydown);
+});
 </script>
 
 <template>
@@ -91,17 +121,37 @@ async function closeWindow(): Promise<void> {
       </div>
 
       <div class="flex items-center gap-2">
+        <div ref="systemStatusMenuRef" class="relative">
+          <button
+            type="button"
+            class="inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] px-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink-dim)] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
+            aria-haspopup="menu"
+            :aria-expanded="isSystemStatusOpen"
+            aria-label="Toggle System Status"
+            @click="toggleSystemStatusMenu"
+          >
+            <Monitor :size="13" />
+          </button>
+
+          <div
+            v-if="isSystemStatusOpen"
+            class="panel absolute right-0 top-[calc(100%+0.4rem)] z-30 w-[min(94vw,680px)] p-2"
+            role="menu"
+          >
+            <SettingsView />
+          </div>
+        </div>
+
         <div
           class="hidden items-center gap-2 md:flex"
           :data-tauri-drag-region="isDesktopRuntime ? '' : undefined"
         >
           <span
-            class="chrome-pill"
+            class="chrome-pill h-7"
             :class="
               activeConnectionState ? 'chrome-pill-ok' : 'chrome-pill-bad'
             "
           >
-            <Dot :size="14" />
             {{ activeConnectionState ? "connected" : "offline" }}:
             {{ activeConnectionLabel }}
           </span>

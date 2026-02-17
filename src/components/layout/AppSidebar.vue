@@ -1,13 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import {
-  Cable,
-  ChevronLeft,
-  Database,
-  PanelsTopLeft,
-  Settings,
-} from "lucide-vue-next";
+import { Cable, ChevronLeft, Database, PanelsTopLeft } from "lucide-vue-next";
 import { useConnectionsStore } from "../../stores/connections";
 import { useUiStore } from "../../stores/ui";
 
@@ -18,7 +12,6 @@ const connectionsStore = useConnectionsStore();
 const links = [
   { to: "/workbench", label: "Query Console", icon: PanelsTopLeft },
   { to: "/connections", label: "Connections", icon: Cable },
-  { to: "/settings", label: "System", icon: Settings },
 ];
 
 const sidebarWidthClass = computed(() =>
@@ -78,10 +71,6 @@ const profileCardClass = computed(() =>
       </button>
     </div>
 
-    <div v-if="!uiStore.sidebarCollapsed" class="mb-2">
-      <input type="text" class="chrome-input" placeholder="FILTER OBJECTS..." />
-    </div>
-
     <nav class="flex flex-1 flex-col gap-1">
       <RouterLink
         v-for="link in links"
@@ -100,24 +89,5 @@ const profileCardClass = computed(() =>
         }}</span>
       </RouterLink>
     </nav>
-
-    <div :class="profileCardClass">
-      <div
-        :class="[
-          'text-xs uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]',
-          uiStore.sidebarCollapsed ? 'flex items-center justify-center' : 'flex items-center gap-2',
-        ]"
-      >
-        <Database :size="13" class="text-[var(--chrome-red)]" />
-        <span v-if="!uiStore.sidebarCollapsed">active profile</span>
-      </div>
-
-      <p
-        v-if="!uiStore.sidebarCollapsed"
-        class="mt-1 truncate text-sm font-semibold text-[var(--chrome-ink)]"
-      >
-        {{ activeConnectionName }}
-      </p>
-    </div>
   </aside>
 </template>

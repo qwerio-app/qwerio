@@ -24,11 +24,34 @@ const matrix = computed(() => [
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-    <section class="panel-tight min-h-0 overflow-hidden p-3">
-      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Capability Matrix</h2>
-      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">Runtime-aware features for Lumdara's dual-mode architecture.</p>
+  <div class="lumdara-scroll flex max-h-[70vh] flex-col gap-2 overflow-auto">
+    <section class="panel-tight p-3">
+      <h2 class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">
+        System Status
+      </h2>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+        Current runtime context for Lumdara.
+      </p>
+      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
+        <p class="text-[0.66rem] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]">
+          Runtime Status
+        </p>
+        <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+          Current runtime:
+          <span class="ml-1 font-semibold uppercase tracking-[0.1em] text-[var(--chrome-green)]">
+            {{ runtimeMode }}
+          </span>
+        </p>
+      </div>
+    </section>
 
+    <section class="panel-tight min-h-0 overflow-hidden p-3">
+      <h3 class="font-display text-base font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">
+        Compatibility Matrix
+      </h3>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+        Runtime-aware features for Lumdara's dual-mode architecture.
+      </p>
       <div class="mt-3 overflow-hidden border border-[var(--chrome-border)]">
         <table class="w-full border-collapse text-xs">
           <thead>
@@ -48,21 +71,6 @@ const matrix = computed(() => [
           </tbody>
         </table>
       </div>
-    </section>
-
-    <section class="panel-tight p-3">
-      <h3 class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Runtime Status</h3>
-      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3 text-xs text-[var(--chrome-ink-dim)]">
-        Current runtime:
-        <span class="ml-1 font-semibold uppercase tracking-[0.1em] text-[var(--chrome-green)]">{{ runtimeMode }}</span>
-      </div>
-
-      <h3 class="mt-4 font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Security Notes</h3>
-      <ul class="mt-2 space-y-2 pl-4 text-xs text-[var(--chrome-ink-dim)]">
-        <li>Credentials are intended to be encrypted before persistence.</li>
-        <li>Web mode is limited to browser-reachable cloud SQL endpoints.</li>
-        <li>Desktop mode is where full socket-level Postgres/MySQL support lands.</li>
-      </ul>
     </section>
   </div>
 </template>
