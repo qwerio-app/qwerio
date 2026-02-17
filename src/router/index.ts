@@ -24,7 +24,8 @@ const router = createRouter({
         },
         {
           path: "settings",
-          redirect: { name: "workbench" },
+          name: "settings",
+          component: () => import("../views/SettingsPageView.vue"),
         },
       ],
     },
