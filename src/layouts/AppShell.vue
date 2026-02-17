@@ -76,7 +76,7 @@ async function closeWindow(): Promise<void> {
         <div
           class="flex size-8 items-center justify-center border border-[var(--chrome-red)] bg-[#13090b] text-[var(--chrome-red)]"
         >
-          <Database :size="14" />
+          <Database :size="16" />
         </div>
 
         <div class="leading-none">
@@ -95,7 +95,9 @@ async function closeWindow(): Promise<void> {
         >
           <span
             class="chrome-pill"
-            :class="activeConnectionState ? 'chrome-pill-ok' : 'chrome-pill-bad'"
+            :class="
+              activeConnectionState ? 'chrome-pill-ok' : 'chrome-pill-bad'
+            "
           >
             <Dot :size="14" />
             {{ activeConnectionState ? "connected" : "offline" }}:

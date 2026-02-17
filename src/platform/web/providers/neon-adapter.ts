@@ -16,6 +16,9 @@ export class NeonServerlessAdapter implements ProviderAdapter {
   constructor(connectionString: string, wsProxyEndpoint?: string) {
     this.validateConnectionString(connectionString);
     this.client = new Client(connectionString);
+    // Non-Neon Postgres servers commonly use SCRAM/MD5 auth. Disabling
+    // pipeline connect avoids protocol mismatches with those setups.
+    this.client.neonConfig.pipelineConnect = false;
     this.configureWsProxy(wsProxyEndpoint);
   }
 
@@ -91,7 +94,10 @@ export class NeonServerlessAdapter implements ProviderAdapter {
       return;
     }
 
-    this.client.neonConfig.wsProxy = normalized.address;
+    this.client.neonConfig.wsProxy = (host, port) => {
+      const addressParam = encodeURIComponent(`${host}:${port}`);
+      return `${normalized.address}${normalized.address.includes("?") ? "&" : "?"}address=${addressParam}`;
+    };
     this.client.neonConfig.useSecureWebSocket = normalized.secure;
     this.wsProxyHint = normalized.address;
   }
@@ -160,6 +166,10 @@ export class NeonServerlessAdapter implements ProviderAdapter {
 
     if (error instanceof Error && /No WebSocket proxy is configured/i.test(error.message)) {
       return "WebSocket proxy is not configured. Set a wsproxy endpoint (for example localhost:6543/v1) on this Neon profile.";
+    }
+
+    if (error instanceof Error && /invalid frontend message type 112/i.test(error.message)) {
+      return `Proxy/Postgres protocol mismatch. Verify wsproxy endpoint '${this.wsProxyHint}' is correct and points to wsproxy v1 for the target DB, and confirm the database accepts password auth for this connection user.`;
     }
 
     if (error instanceof Error) {
