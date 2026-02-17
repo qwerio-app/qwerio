@@ -39,8 +39,8 @@ type OpenPageTabInput = {
 };
 
 export const useAppTabsStore = defineStore("app-tabs", () => {
-  const tabs = useStorage<AppTab[]>("lumdara.ui.appTabs", []);
-  const activeTabId = useStorage<string | null>("lumdara.ui.activeAppTabId", null);
+  const tabs = useStorage<AppTab[]>("qwerio.ui.appTabs", []);
+  const activeTabId = useStorage<string | null>("qwerio.ui.activeAppTabId", null);
 
   function ensureActiveTab(): void {
     if (tabs.value.length === 0) {

@@ -1,4 +1,4 @@
-# Lumdara
+# Qwerio
 
 Dual-mode database manager scaffold built with Tauri + Vue.
 

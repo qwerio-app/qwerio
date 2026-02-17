@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "lumdara",
+  "productName": "Qwerio",
   "version": "0.1.0",
-  "identifier": "com.codingnoodles.lumdara",
+  "identifier": "com.codingnoodles.qwerio",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
       {
         "decorations": false,
         "transparent": true,
-        "title": "Lumdara",
+        "title": "Qwerio",
         "width": 800,
         "height": 600
       }

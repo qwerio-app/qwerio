@@ -1,7 +1,7 @@
 import { detectRuntimeMode } from "./runtime";
 import type { ConnectionSecret } from "./types";
 
-const WEB_VAULT_KEY = "lumdara.web.secretVault.v1";
+const WEB_VAULT_KEY = "qwerio.web.secretVault.v1";
 const WEB_VAULT_VERSION = 1;
 const PBKDF2_ITERATIONS = 250_000;
 

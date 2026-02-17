@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client as PgClient, NoTls};
 
-const KEYRING_SERVICE: &str = "lumdara.credentials";
+const KEYRING_SERVICE: &str = "qwerio.credentials";
 
 #[derive(Default)]
 struct AppState {

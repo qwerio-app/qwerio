@@ -24,13 +24,13 @@ const matrix = computed(() => [
 </script>
 
 <template>
-  <div class="lumdara-scroll flex max-h-[70vh] flex-col gap-2 overflow-auto">
+  <div class="qwerio-scroll flex max-h-[70vh] flex-col gap-2 overflow-auto">
     <section class="panel-tight p-3">
       <h2 class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">
         System Status
       </h2>
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-        Current runtime context for Lumdara.
+        Current runtime context for Qwerio.
       </p>
       <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
         <p class="text-[0.66rem] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]">
@@ -50,7 +50,7 @@ const matrix = computed(() => [
         Compatibility Matrix
       </h3>
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-        Runtime-aware features for Lumdara's dual-mode architecture.
+        Runtime-aware features for Qwerio's dual-mode architecture.
       </p>
       <div class="mt-3 overflow-hidden border border-[var(--chrome-border)]">
         <table class="w-full border-collapse text-xs">

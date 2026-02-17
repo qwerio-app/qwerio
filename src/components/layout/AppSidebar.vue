@@ -66,7 +66,7 @@ function handleLinkNavigation(to: string): void {
 <template>
   <aside
     :class="[
-      'panel lumdara-scroll flex w-full min-h-[180px] shrink-0 flex-col overflow-y-auto p-2 md:h-full md:min-h-0',
+      'panel qwerio-scroll flex w-full min-h-[180px] shrink-0 flex-col overflow-y-auto p-2 md:h-full md:min-h-0',
       sidebarWidthClass,
     ]"
   >
@@ -85,14 +85,14 @@ function handleLinkNavigation(to: string): void {
         "
         @click="uiStore.toggleSidebar"
       >
-        <img src="/logo.png" alt="Lumdara" class="size-8 object-cover" />
+        <img src="/logo.png" alt="Qwerio" class="size-8 object-cover" />
       </button>
 
       <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 leading-none">
         <p
           class="font-display text-base font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)]"
         >
-          LUMDARA
+          QWERIO
         </p>
       </div>
     </div>

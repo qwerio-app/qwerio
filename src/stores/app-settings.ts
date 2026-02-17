@@ -5,15 +5,15 @@ const DEFAULT_NEW_QUERY_SQL = "select now();";
 
 export const useAppSettingsStore = defineStore("app-settings", () => {
   const showSystemStatusButton = useStorage<boolean>(
-    "lumdara.settings.showSystemStatusButton",
+    "qwerio.settings.showSystemStatusButton",
     true,
   );
   const showConnectionStatusPill = useStorage<boolean>(
-    "lumdara.settings.showConnectionStatusPill",
+    "qwerio.settings.showConnectionStatusPill",
     true,
   );
   const newQueryTemplateSql = useStorage<string>(
-    "lumdara.settings.newQueryTemplateSql",
+    "qwerio.settings.newQueryTemplateSql",
     DEFAULT_NEW_QUERY_SQL,
   );
 

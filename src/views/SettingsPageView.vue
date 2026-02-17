@@ -20,13 +20,13 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
 </script>
 
 <template>
-  <div class="lumdara-scroll flex h-full flex-col gap-2 overflow-auto">
+  <div class="qwerio-scroll flex h-full flex-col gap-2 overflow-auto">
     <section class="panel-tight p-3">
       <h2 class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">
         App Settings
       </h2>
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-        Configure Lumdara behavior and defaults.
+        Configure Qwerio behavior and defaults.
       </p>
 
       <div class="mt-3 grid gap-2 md:grid-cols-2">

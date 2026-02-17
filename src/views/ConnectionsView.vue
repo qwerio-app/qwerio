@@ -23,7 +23,7 @@ import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
 import type { ConnectionProfile, ConnectionSecret, ConnectionTarget, DbDialect } from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
 
-const TEST_CONNECTION_ID = "lumdara-connection-test";
+const TEST_CONNECTION_ID = "qwerio-connection-test";
 
 const store = useConnectionsStore();
 
@@ -553,7 +553,7 @@ onMounted(() => {
 
 <template>
   <div class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[400px_minmax(0,1fr)]">
-    <section class="panel-tight lumdara-scroll overflow-auto p-3">
+    <section class="panel-tight qwerio-scroll overflow-auto p-3">
       <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connection Provisioning</h2>
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
         Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres, PlanetScale HTTP for MySQL).
@@ -776,7 +776,7 @@ onMounted(() => {
       <p v-if="feedback" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
     </section>
 
-    <section class="panel-tight lumdara-scroll min-h-0 overflow-auto p-3">
+    <section class="panel-tight qwerio-scroll min-h-0 overflow-auto p-3">
       <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Saved Profiles</h2>
 
       <div v-if="store.profiles.length === 0" class="chrome-empty mt-3 p-4 text-xs">No saved connections yet.</div>

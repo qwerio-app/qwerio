@@ -44,7 +44,7 @@ const rowData = computed(() => props.result?.rows ?? []);
       Run a query to inspect result rows.
     </div>
 
-    <div v-else class="lumdara-grid ag-theme-quartz-dark min-h-0 flex-1 overflow-hidden border-t border-[var(--chrome-border)]">
+    <div v-else class="qwerio-grid ag-theme-quartz-dark min-h-0 flex-1 overflow-hidden border-t border-[var(--chrome-border)]">
       <AgGridVue :row-data="rowData" :column-defs="columnDefs" class="h-full w-full" />
     </div>
   </section>

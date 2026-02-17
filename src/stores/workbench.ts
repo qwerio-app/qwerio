@@ -32,7 +32,7 @@ function getNextQueryIndex(tabs: QueryTab[]): number {
 }
 
 export const useWorkbenchStore = defineStore("workbench", () => {
-  const tabs = useStorage<QueryTab[]>("lumdara.workbench.tabs", [
+  const tabs = useStorage<QueryTab[]>("qwerio.workbench.tabs", [
     {
       id: crypto.randomUUID(),
       title: "Query 1",
@@ -49,7 +49,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     ];
   }
 
-  const activeTabId = useStorage<string>("lumdara.workbench.activeTabId", tabs.value[0].id);
+  const activeTabId = useStorage<string>("qwerio.workbench.activeTabId", tabs.value[0].id);
   const isRunning = ref(false);
   const errorMessage = ref<string>("");
   const schemaNames = ref<Array<{ name: string }>>([]);

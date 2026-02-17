@@ -194,7 +194,7 @@ async function closeTab(tab: AppTab): Promise<void> {
     class="panel chrome-panel-header flex items-center justify-between gap-2 px-2.5 py-2 md:px-3"
   >
     <div
-      class="lumdara-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5"
+      class="qwerio-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5"
     >
       <button
         v-for="tab in appTabsStore.tabs"

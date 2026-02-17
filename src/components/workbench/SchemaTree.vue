@@ -32,7 +32,7 @@ onMounted(async () => {
       </button>
     </div>
 
-    <div class="lumdara-scroll min-h-0 flex-1 overflow-auto p-2">
+    <div class="qwerio-scroll min-h-0 flex-1 overflow-auto p-2">
       <p v-if="workbenchStore.schemaNames.length === 0" class="chrome-empty p-3 text-xs">
         Add a connection to inspect schemas.
       </p>

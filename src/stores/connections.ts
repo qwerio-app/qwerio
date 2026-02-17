@@ -37,8 +37,8 @@ const newConnectionSchema = z.object({
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
 
 export const useConnectionsStore = defineStore("connections", () => {
-  const profiles = useStorage<ConnectionProfile[]>("lumdara.connections", []);
-  const activeConnectionId = useStorage<string | null>("lumdara.connections.active", null);
+  const profiles = useStorage<ConnectionProfile[]>("qwerio.connections", []);
+  const activeConnectionId = useStorage<string | null>("qwerio.connections.active", null);
 
   const activeProfile = computed(() =>
     profiles.value.find((profile) => profile.id === activeConnectionId.value) ?? null,
