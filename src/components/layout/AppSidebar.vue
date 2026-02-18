@@ -13,7 +13,11 @@ const appTabsStore = useAppTabsStore();
 const primaryLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
 ];
-const settingsLink = { to: "/settings", label: "Settings", icon: SlidersHorizontal };
+const settingsLink = {
+  to: "/settings",
+  label: "Settings",
+  icon: SlidersHorizontal,
+};
 
 const sidebarWidthClass = computed(() =>
   uiStore.sidebarCollapsed ? "md:w-auto" : "md:w-[260px]",
@@ -118,7 +122,9 @@ function handleLinkNavigation(to: string): void {
         </button>
       </div>
 
-      <div class="mt-auto border-t border-[var(--chrome-border)] pt-2">
+      <div
+        class="flex flex-col mt-auto border-t border-[var(--chrome-border)] pt-2"
+      >
         <button
           type="button"
           :class="[
