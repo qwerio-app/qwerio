@@ -186,7 +186,7 @@ watch(
 
       <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 leading-none">
         <p
-          class="font-display text-base font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)]"
+          class="font-display text-base font-semibold uppercase tracking-widest text-[var(--chrome-ink)]"
         >
           QWERIO
         </p>

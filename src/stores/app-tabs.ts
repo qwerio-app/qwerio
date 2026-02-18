@@ -85,6 +85,10 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
     activeTabId.value = tabId;
   }
 
+  function clearActiveTab(): void {
+    activeTabId.value = null;
+  }
+
   function openQueryTab({ queryTabId, title, routePath, activate = true }: OpenQueryTabInput): QueryAppTab {
     let tab = tabs.value.find((item): item is QueryAppTab => item.kind === "query" && item.queryTabId === queryTabId);
 
@@ -186,6 +190,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
     activeTabId,
     activeTab,
     setActiveTab,
+    clearActiveTab,
     openQueryTab,
     openPageTab,
     closeTab,

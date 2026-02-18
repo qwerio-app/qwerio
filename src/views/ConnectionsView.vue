@@ -16,7 +16,12 @@ import {
   storeConnectionSecret,
 } from "../core/secret-vault";
 import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
-import type { ConnectionProfile, ConnectionSecret, ConnectionTarget, DbDialect } from "../core/types";
+import type {
+  ConnectionProfile,
+  ConnectionSecret,
+  ConnectionTarget,
+  DbDialect,
+} from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
 import { useVaultStore } from "../stores/vault";
 
@@ -35,19 +40,28 @@ const editingConnectionId = ref<string | null>(null);
 const editingSecret = ref<ConnectionSecret | null>(null);
 
 const isEditing = computed(() => Boolean(editingConnectionId.value));
-const modalTitle = computed(() => (isEditing.value ? "Edit Connection" : "New Connection"));
+const modalTitle = computed(() =>
+  isEditing.value ? "Edit Connection" : "New Connection",
+);
 
 const form = reactive({
   name: "",
-  kind: (isWebRuntime ? "web-provider" : "desktop-tcp") as ConnectionTarget["kind"],
+  kind: (isWebRuntime
+    ? "web-provider"
+    : "desktop-tcp") as ConnectionTarget["kind"],
   dialect: "postgres" as DbDialect,
   host: "",
   port: 5432,
   database: "",
   user: "",
   password: "",
-  provider: "neon" as Extract<ConnectionTarget, { kind: "web-provider" }>["provider"],
-  neonInputMode: "connection-details" as "connection-details" | "connection-string",
+  provider: "neon" as Extract<
+    ConnectionTarget,
+    { kind: "web-provider" }
+  >["provider"],
+  neonInputMode: "connection-details" as
+    | "connection-details"
+    | "connection-string",
   endpoint: "",
   projectId: "",
   connectionString: "",
@@ -59,7 +73,9 @@ function refreshVaultStatus(): void {
   vaultStore.refreshStatus();
 }
 
-async function ensureWebVaultUnlockedFor(action: "save" | "test"): Promise<boolean> {
+async function ensureWebVaultUnlockedFor(
+  action: "save" | "test",
+): Promise<boolean> {
   if (!isWebRuntime) {
     return true;
   }
@@ -112,7 +128,9 @@ function toUrlHost(rawHost: string, port: number): string {
   const unwrappedHost = rawHost.trim().replace(/^\[/, "").replace(/\]$/, "");
   const hostSegments = unwrappedHost.split(":");
   const hostWithoutPort =
-    hostSegments.length === 2 && /^\d+$/.test(hostSegments[1]) ? hostSegments[0] : unwrappedHost;
+    hostSegments.length === 2 && /^\d+$/.test(hostSegments[1])
+      ? hostSegments[0]
+      : unwrappedHost;
 
   if (hostWithoutPort.includes(":")) {
     return `[${hostWithoutPort}]:${port}`;
@@ -128,7 +146,8 @@ function buildPostgresConnectionStringFromFields(): string | null {
   const port = Number(form.port);
 
   if (!host || !database || !user) {
-    feedback.value = "Host, database, and user are required for Neon Postgres details mode.";
+    feedback.value =
+      "Host, database, and user are required for Neon Postgres details mode.";
     return null;
   }
 
@@ -146,7 +165,9 @@ function buildPostgresConnectionStringFromFields(): string | null {
   return url.toString();
 }
 
-function resolveNeonConnectionString(allowExistingSecret = false): string | null {
+function resolveNeonConnectionString(
+  allowExistingSecret = false,
+): string | null {
   if (form.neonInputMode === "connection-string") {
     if (form.connectionString.trim()) {
       return form.connectionString.trim();
@@ -182,7 +203,10 @@ function resolveNeonConnectionString(allowExistingSecret = false): string | null
   return null;
 }
 
-function toConnectionSecret(target: ConnectionTarget, allowExistingSecret = false): ConnectionSecret | null {
+function toConnectionSecret(
+  target: ConnectionTarget,
+  allowExistingSecret = false,
+): ConnectionSecret | null {
   if (target.kind === "desktop-tcp") {
     return {
       kind: "desktop-tcp",
@@ -255,7 +279,9 @@ function connectionTargetLabel(profile: ConnectionProfile): string {
   }
 
   const endpoint = profile.target.endpoint.trim();
-  return endpoint ? `${profile.target.provider} · ${endpoint}` : profile.target.provider;
+  return endpoint
+    ? `${profile.target.provider} · ${endpoint}`
+    : profile.target.provider;
 }
 
 function openNewConnectionModal(): void {
@@ -279,7 +305,12 @@ function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
     const url = new URL(connectionString);
     const database = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
 
-    if (!url.hostname || !database || !url.username || !["postgres:", "postgresql:"].includes(url.protocol)) {
+    if (
+      !url.hostname ||
+      !database ||
+      !url.username ||
+      !["postgres:", "postgresql:"].includes(url.protocol)
+    ) {
       throw new Error("invalid");
     }
 
@@ -302,7 +333,10 @@ function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
   }
 }
 
-function hydrateFormFromProfile(profile: ConnectionProfile, secret: ConnectionSecret | null): void {
+function hydrateFormFromProfile(
+  profile: ConnectionProfile,
+  secret: ConnectionSecret | null,
+): void {
   form.name = profile.name;
   form.host = "";
   form.port = 5432;
@@ -371,7 +405,8 @@ async function startEditConnection(connectionId: string): Promise<boolean> {
     hydrateFormFromProfile(profile, secret);
 
     if (!secret) {
-      feedback.value = "No credentials found. Enter credentials and save to restore this profile.";
+      feedback.value =
+        "No credentials found. Enter credentials and save to restore this profile.";
     }
   } catch (error) {
     feedback.value =
@@ -404,7 +439,10 @@ async function testConnection(): Promise<void> {
       return;
     }
 
-    if (target.kind === "web-provider" && !(await ensureWebVaultUnlockedFor("test"))) {
+    if (
+      target.kind === "web-provider" &&
+      !(await ensureWebVaultUnlockedFor("test"))
+    ) {
       return;
     }
 
@@ -429,7 +467,8 @@ async function testConnection(): Promise<void> {
 
     feedback.value = "Connection test succeeded.";
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : "Connection test failed.";
+    feedback.value =
+      error instanceof Error ? error.message : "Connection test failed.";
   } finally {
     if (shouldDeleteTestSecret) {
       try {
@@ -455,14 +494,19 @@ async function submitConnection(): Promise<void> {
       return;
     }
 
-    if (target.kind === "web-provider" && !(await ensureWebVaultUnlockedFor("save"))) {
+    if (
+      target.kind === "web-provider" &&
+      !(await ensureWebVaultUnlockedFor("save"))
+    ) {
       return;
     }
 
     const editingId = editingConnectionId.value;
 
     if (editingId) {
-      const previousProfile = store.profiles.find((profile) => profile.id === editingId);
+      const previousProfile = store.profiles.find(
+        (profile) => profile.id === editingId,
+      );
 
       if (!previousProfile) {
         feedback.value = "Connection profile not found.";
@@ -489,7 +533,9 @@ async function submitConnection(): Promise<void> {
       } catch (error) {
         store.updateConnection(editingId, rollbackInput);
         feedback.value =
-          error instanceof Error ? error.message : "Failed to store connection credentials securely.";
+          error instanceof Error
+            ? error.message
+            : "Failed to store connection credentials securely.";
         return;
       }
 
@@ -515,7 +561,9 @@ async function submitConnection(): Promise<void> {
     } catch (error) {
       store.removeConnection(result.profile.id);
       feedback.value =
-        error instanceof Error ? error.message : "Failed to store connection credentials securely.";
+        error instanceof Error
+          ? error.message
+          : "Failed to store connection credentials securely.";
       return;
     }
 
@@ -524,7 +572,8 @@ async function submitConnection(): Promise<void> {
     isModalOpen.value = false;
     resetForm();
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : "Unable to save connection.";
+    feedback.value =
+      error instanceof Error ? error.message : "Unable to save connection.";
   } finally {
     isSubmitting.value = false;
   }
@@ -542,27 +591,38 @@ async function removeConnection(id: string): Promise<void> {
       resetForm();
     }
   } catch (error) {
-    feedback.value = error instanceof Error ? error.message : "Unable to remove connection.";
+    feedback.value =
+      error instanceof Error ? error.message : "Unable to remove connection.";
   }
 }
-
 </script>
 
 <template>
-  <div class="qwerio-scroll min-h-0 flex-1 overflow-auto p-3">
+  <div class="qwerio-scroll min-h-0 flex-1 overflow-auto">
     <section class="panel-tight p-3">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connections</h2>
+          <h2
+            class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
+          >
+            Connections
+          </h2>
           <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-            Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres, PlanetScale HTTP for MySQL).
+            Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP
+            drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres,
+            PlanetScale HTTP for MySQL).
           </p>
         </div>
 
         <span class="chrome-pill">{{ store.profiles.length }} Saved</span>
       </div>
 
-      <p v-if="feedback && !isModalOpen" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
+      <p
+        v-if="feedback && !isModalOpen"
+        class="mt-3 text-xs text-[var(--chrome-yellow)]"
+      >
+        {{ feedback }}
+      </p>
 
       <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <button
@@ -571,11 +631,19 @@ async function removeConnection(id: string): Promise<void> {
           :disabled="isSubmitting || isTesting"
           @click="openNewConnectionModal"
         >
-          <div class="inline-flex h-8 w-8 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#121824] text-[var(--chrome-red)] transition group-hover:border-[var(--chrome-red)]">
+          <div
+            class="inline-flex h-8 w-8 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#121824] text-[var(--chrome-red)] transition group-hover:border-[var(--chrome-red)]"
+          >
             <Plus :size="16" />
           </div>
-          <p class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]">Add Connection</p>
-          <p class="text-xs text-[var(--chrome-ink-dim)]">Create a new encrypted connection profile.</p>
+          <p
+            class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
+          >
+            Add Connection
+          </p>
+          <p class="text-xs text-[var(--chrome-ink-dim)]">
+            Create a new encrypted connection profile.
+          </p>
         </button>
 
         <article
@@ -593,34 +661,57 @@ async function removeConnection(id: string): Promise<void> {
               <component
                 :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
                 :size="15"
-                :class="profile.target.kind === 'desktop-tcp' ? 'text-[var(--chrome-red)]' : 'text-[var(--chrome-yellow)]'"
+                :class="
+                  profile.target.kind === 'desktop-tcp'
+                    ? 'text-[var(--chrome-red)]'
+                    : 'text-[var(--chrome-yellow)]'
+                "
               />
 
               <div class="min-w-0">
-                <p class="truncate text-sm font-semibold text-[var(--chrome-ink)]">{{ profile.name }}</p>
-                <p class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
+                <p
+                  class="truncate text-sm font-semibold text-[var(--chrome-ink)]"
+                >
+                  {{ profile.name }}
+                </p>
+                <p
+                  class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
+                >
                   {{ connectionKindLabel(profile) }}
                 </p>
               </div>
             </button>
 
-            <span v-if="store.activeConnectionId === profile.id" class="chrome-pill chrome-pill-ok">
+            <span
+              v-if="store.activeConnectionId === profile.id"
+              class="chrome-pill chrome-pill-ok"
+            >
               <CheckCircle2 :size="12" />
               Active
             </span>
             <span v-else class="chrome-pill">Saved</span>
           </div>
 
-          <p class="mt-3 truncate text-xs text-[var(--chrome-ink-dim)]">{{ connectionTargetLabel(profile) }}</p>
-          <p class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
+          <p class="mt-3 truncate text-xs text-[var(--chrome-ink-dim)]">
+            {{ connectionTargetLabel(profile) }}
+          </p>
+          <p
+            class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
+          >
             {{ profile.target.dialect }}
           </p>
 
-          <div class="mt-4 flex flex-wrap gap-2 border-t border-[var(--chrome-border)] pt-3">
+          <div
+            class="mt-4 flex flex-wrap gap-2 border-t border-[var(--chrome-border)] pt-3"
+          >
             <button
               type="button"
               class="chrome-btn"
-              :disabled="isSubmitting || isTesting || store.activeConnectionId === profile.id"
+              :disabled="
+                isSubmitting ||
+                isTesting ||
+                store.activeConnectionId === profile.id
+              "
               @click="store.setActiveConnection(profile.id)"
             >
               {{ store.activeConnectionId === profile.id ? "Active" : "Use" }}
@@ -649,7 +740,12 @@ async function removeConnection(id: string): Promise<void> {
         </article>
       </div>
 
-      <div v-if="store.profiles.length === 0" class="chrome-empty mt-3 p-4 text-xs">No saved connections yet.</div>
+      <div
+        v-if="store.profiles.length === 0"
+        class="chrome-empty mt-3 p-4 text-xs"
+      >
+        No saved connections yet.
+      </div>
     </section>
 
     <div
@@ -657,11 +753,22 @@ async function removeConnection(id: string): Promise<void> {
       class="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(7,9,13,0.84)] p-4 backdrop-blur-sm"
       @click="closeConnectionModal"
     >
-      <section class="panel relative z-[1] w-full max-w-3xl overflow-hidden" @click.stop>
-        <div class="chrome-panel-header flex items-start justify-between gap-3 px-4 py-3">
+      <section
+        class="panel relative z-[1] w-full max-w-3xl overflow-hidden"
+        @click.stop
+      >
+        <div
+          class="chrome-panel-header flex items-start justify-between gap-3 px-4 py-3"
+        >
           <div>
-            <h3 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">{{ modalTitle }}</h3>
-            <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">Configure credentials and test before saving.</p>
+            <h3
+              class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
+            >
+              {{ modalTitle }}
+            </h3>
+            <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+              Configure credentials and test before saving.
+            </p>
           </div>
 
           <button
@@ -675,28 +782,41 @@ async function removeConnection(id: string): Promise<void> {
         </div>
 
         <div class="qwerio-scroll max-h-[80vh] overflow-auto">
-          <form class="flex flex-col gap-3 p-4" @submit.prevent="submitConnection">
+          <form
+            class="flex flex-col gap-3 p-4"
+            @submit.prevent="submitConnection"
+          >
             <p v-if="isEditing" class="text-xs text-[var(--chrome-yellow)]">
               Editing profile. Test and save to apply updates.
             </p>
 
             <label class="chrome-label">
               <span>Name</span>
-              <input v-model="form.name" class="chrome-input mt-1" type="text" />
+              <input
+                v-model="form.name"
+                class="chrome-input mt-1"
+                type="text"
+              />
             </label>
 
             <div class="grid grid-cols-2 gap-3">
               <label class="chrome-label">
                 <span>Mode</span>
                 <select v-model="form.kind" class="chrome-input mt-1">
-                  <option value="desktop-tcp" :disabled="isWebRuntime">Desktop TCP</option>
+                  <option value="desktop-tcp" :disabled="isWebRuntime">
+                    Desktop TCP
+                  </option>
                   <option value="web-provider">Web Provider</option>
                 </select>
               </label>
 
               <label class="chrome-label">
                 <span>Dialect</span>
-                <select v-model="form.dialect" :disabled="form.kind === 'web-provider'" class="chrome-input mt-1">
+                <select
+                  v-model="form.dialect"
+                  :disabled="form.kind === 'web-provider'"
+                  class="chrome-input mt-1"
+                >
                   <option value="postgres">Postgres</option>
                   <option value="mysql">MySQL</option>
                 </select>
@@ -706,29 +826,49 @@ async function removeConnection(id: string): Promise<void> {
             <template v-if="form.kind === 'desktop-tcp'">
               <label class="chrome-label">
                 <span>Host</span>
-                <input v-model="form.host" class="chrome-input mt-1" type="text" />
+                <input
+                  v-model="form.host"
+                  class="chrome-input mt-1"
+                  type="text"
+                />
               </label>
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="chrome-label">
                   <span>Port</span>
-                  <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
+                  <input
+                    v-model.number="form.port"
+                    class="chrome-input mt-1"
+                    type="number"
+                  />
                 </label>
 
                 <label class="chrome-label">
                   <span>Database</span>
-                  <input v-model="form.database" class="chrome-input mt-1" type="text" />
+                  <input
+                    v-model="form.database"
+                    class="chrome-input mt-1"
+                    type="text"
+                  />
                 </label>
               </div>
 
               <label class="chrome-label">
                 <span>User</span>
-                <input v-model="form.user" class="chrome-input mt-1" type="text" />
+                <input
+                  v-model="form.user"
+                  class="chrome-input mt-1"
+                  type="text"
+                />
               </label>
 
               <label class="chrome-label">
                 <span>Password (optional)</span>
-                <input v-model="form.password" class="chrome-input mt-1" type="password" />
+                <input
+                  v-model="form.password"
+                  class="chrome-input mt-1"
+                  type="password"
+                />
               </label>
             </template>
 
@@ -736,7 +876,9 @@ async function removeConnection(id: string): Promise<void> {
               <label class="chrome-label">
                 <span>Provider</span>
                 <select v-model="form.provider" class="chrome-input mt-1">
-                  <option value="neon">Neon Serverless (Postgres via wsproxy)</option>
+                  <option value="neon">
+                    Neon Serverless (Postgres via wsproxy)
+                  </option>
                   <option value="planetscale">PlanetScale (MySQL HTTP)</option>
                 </select>
               </label>
@@ -755,12 +897,20 @@ async function removeConnection(id: string): Promise<void> {
                 <div class="grid grid-cols-2 gap-3">
                   <label class="chrome-label">
                     <span>Username</span>
-                    <input v-model="form.providerUsername" class="chrome-input mt-1" type="text" />
+                    <input
+                      v-model="form.providerUsername"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
                   </label>
 
                   <label class="chrome-label">
                     <span>Password</span>
-                    <input v-model="form.providerPassword" class="chrome-input mt-1" type="password" />
+                    <input
+                      v-model="form.providerPassword"
+                      class="chrome-input mt-1"
+                      type="password"
+                    />
                   </label>
                 </div>
               </template>
@@ -777,12 +927,16 @@ async function removeConnection(id: string): Promise<void> {
                 </label>
 
                 <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
-                  For local Postgres in browser mode, run wsproxy and set it here (for example `localhost:6543/v1`).
+                  For local Postgres in browser mode, run wsproxy and set it
+                  here (for example `localhost:6543/v1`).
                 </p>
 
                 <label class="chrome-label">
                   <span>Postgres Input Mode</span>
-                  <select v-model="form.neonInputMode" class="chrome-input mt-1">
+                  <select
+                    v-model="form.neonInputMode"
+                    class="chrome-input mt-1"
+                  >
                     <option value="connection-details">Separate Fields</option>
                     <option value="connection-string">Connection String</option>
                   </select>
@@ -791,29 +945,50 @@ async function removeConnection(id: string): Promise<void> {
                 <template v-if="form.neonInputMode === 'connection-details'">
                   <label class="chrome-label">
                     <span>Host</span>
-                    <input v-model="form.host" class="chrome-input mt-1" type="text" placeholder="localhost" />
+                    <input
+                      v-model="form.host"
+                      class="chrome-input mt-1"
+                      type="text"
+                      placeholder="localhost"
+                    />
                   </label>
 
                   <div class="grid grid-cols-2 gap-3">
                     <label class="chrome-label">
                       <span>Port</span>
-                      <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
+                      <input
+                        v-model.number="form.port"
+                        class="chrome-input mt-1"
+                        type="number"
+                      />
                     </label>
 
                     <label class="chrome-label">
                       <span>Database</span>
-                      <input v-model="form.database" class="chrome-input mt-1" type="text" />
+                      <input
+                        v-model="form.database"
+                        class="chrome-input mt-1"
+                        type="text"
+                      />
                     </label>
                   </div>
 
                   <label class="chrome-label">
                     <span>User</span>
-                    <input v-model="form.user" class="chrome-input mt-1" type="text" />
+                    <input
+                      v-model="form.user"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
                   </label>
 
                   <label class="chrome-label">
                     <span>Password (optional)</span>
-                    <input v-model="form.password" class="chrome-input mt-1" type="password" />
+                    <input
+                      v-model="form.password"
+                      class="chrome-input mt-1"
+                      type="password"
+                    />
                   </label>
                 </template>
 
@@ -842,8 +1017,20 @@ async function removeConnection(id: string): Promise<void> {
                 {{ isTesting ? "Testing..." : "Test Connection" }}
               </button>
 
-              <button type="submit" :disabled="isSubmitting || isTesting" class="chrome-btn chrome-btn-primary">
-                {{ isSubmitting ? (isEditing ? "Updating..." : "Saving...") : (isEditing ? "Update Connection" : "Save Connection") }}
+              <button
+                type="submit"
+                :disabled="isSubmitting || isTesting"
+                class="chrome-btn chrome-btn-primary"
+              >
+                {{
+                  isSubmitting
+                    ? isEditing
+                      ? "Updating..."
+                      : "Saving..."
+                    : isEditing
+                      ? "Update Connection"
+                      : "Save Connection"
+                }}
               </button>
 
               <button
@@ -856,7 +1043,9 @@ async function removeConnection(id: string): Promise<void> {
               </button>
             </div>
 
-            <p v-if="feedback" class="mt-1 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
+            <p v-if="feedback" class="mt-1 text-xs text-[var(--chrome-yellow)]">
+              {{ feedback }}
+            </p>
           </form>
         </div>
       </section>

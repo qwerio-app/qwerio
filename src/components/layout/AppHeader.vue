@@ -112,6 +112,8 @@ watch(
       });
       return;
     }
+
+    appTabsStore.clearActiveTab();
   },
   { immediate: true },
 );
