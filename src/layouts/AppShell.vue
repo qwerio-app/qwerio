@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppHeader from "../components/layout/AppHeader.vue";
 import AppSidebar from "../components/layout/AppSidebar.vue";
+import VaultUnlockOverlay from "../components/security/VaultUnlockOverlay.vue";
 </script>
 
 <template>
@@ -16,5 +17,7 @@ import AppSidebar from "../components/layout/AppSidebar.vue";
         <RouterView />
       </main>
     </section>
+
+    <VaultUnlockOverlay />
   </div>
 </template>

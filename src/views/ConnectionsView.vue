@@ -11,17 +11,16 @@ import {
   Trash2,
   Unlock,
 } from "lucide-vue-next";
+import VaultPinInput from "../components/security/VaultPinInput.vue";
 import {
   deleteConnectionSecret,
-  getWebSecretVaultStatus,
   loadConnectionSecret,
-  lockWebSecretVault,
   storeConnectionSecret,
-  unlockWebSecretVault,
 } from "../core/secret-vault";
 import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
 import type { ConnectionProfile, ConnectionSecret, ConnectionTarget, DbDialect } from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
+import { useVaultStore } from "../stores/vault";
 
 const TEST_CONNECTION_ID = "qwerio-connection-test";
 
@@ -32,12 +31,13 @@ const isSubmitting = ref(false);
 const isTesting = ref(false);
 const runtimeMode = getRuntimeMode();
 const isWebRuntime = runtimeMode === "web";
-const vaultPassphrase = ref("");
-const vaultStatus = ref(getWebSecretVaultStatus());
+const vaultStore = useVaultStore();
+const vaultPin = ref("");
 const editingConnectionId = ref<string | null>(null);
 const editingSecret = ref<ConnectionSecret | null>(null);
 
 const isEditing = computed(() => Boolean(editingConnectionId.value));
+const isVaultPinComplete = computed(() => vaultPin.value.length === 5);
 
 const form = reactive({
   name: "",
@@ -58,7 +58,7 @@ const form = reactive({
 });
 
 function refreshVaultStatus(): void {
-  vaultStatus.value = getWebSecretVaultStatus();
+  vaultStore.refreshStatus();
 }
 
 async function unlockVault(): Promise<void> {
@@ -68,9 +68,15 @@ async function unlockVault(): Promise<void> {
 
   feedback.value = "";
 
+  if (!isVaultPinComplete.value) {
+    feedback.value = "Enter your full 5-digit PIN.";
+    return;
+  }
+
   try {
-    await unlockWebSecretVault(vaultPassphrase.value);
+    await vaultStore.unlockWithPin(vaultPin.value);
     refreshVaultStatus();
+    vaultPin.value = "";
     feedback.value = "Web secret vault unlocked.";
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "Unable to unlock web secret vault.";
@@ -82,7 +88,7 @@ function lockVault(): void {
     return;
   }
 
-  lockWebSecretVault();
+  vaultStore.lock();
   refreshVaultStatus();
   feedback.value = "Web secret vault locked.";
 }
@@ -92,21 +98,22 @@ async function ensureWebVaultUnlockedFor(action: "save" | "test"): Promise<boole
     return true;
   }
 
-  if (vaultStatus.value.unlocked) {
+  if (vaultStore.status.unlocked) {
     return true;
   }
 
-  if (!vaultPassphrase.value) {
+  if (!isVaultPinComplete.value) {
     feedback.value =
       action === "save"
-        ? "Unlock the web secret vault with your passphrase before saving web connections."
-        : "Unlock the web secret vault with your passphrase before testing web connections.";
+        ? "Enter your 5-digit PIN to unlock the web secret vault before saving web connections."
+        : "Enter your 5-digit PIN to unlock the web secret vault before testing web connections.";
     return false;
   }
 
   try {
-    await unlockWebSecretVault(vaultPassphrase.value);
+    await vaultStore.unlockWithPin(vaultPin.value);
     refreshVaultStatus();
+    vaultPin.value = "";
     return true;
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "Unable to unlock web secret vault.";
@@ -568,28 +575,28 @@ onMounted(() => {
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--chrome-ink-dim)]">Web Secret Vault</p>
             <p class="mt-1 text-xs">
-              <span class="chrome-pill" :class="vaultStatus.unlocked ? 'chrome-pill-ok' : 'chrome-pill-bad'">
-                {{ vaultStatus.unlocked ? "Unlocked" : "Locked" }}
+              <span class="chrome-pill" :class="vaultStore.status.unlocked ? 'chrome-pill-ok' : 'chrome-pill-bad'">
+                {{ vaultStore.status.unlocked ? "Unlocked" : "Locked" }}
               </span>
             </p>
           </div>
 
-          <button v-if="vaultStatus.unlocked" type="button" class="chrome-btn inline-flex items-center gap-1" @click="lockVault">
+          <button v-if="vaultStore.status.unlocked" type="button" class="chrome-btn inline-flex items-center gap-1" @click="lockVault">
             <Lock :size="12" />
             Lock
           </button>
         </div>
 
-        <div class="mt-3 flex items-center gap-2" v-if="!vaultStatus.unlocked">
-          <input
-            v-model="vaultPassphrase"
-            type="password"
-            class="chrome-input"
-            placeholder="Enter passphrase (min 8 chars)"
-          />
-          <button type="button" class="chrome-btn chrome-btn-primary inline-flex items-center gap-1" @click="unlockVault">
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center" v-if="!vaultStore.status.unlocked">
+          <VaultPinInput v-model="vaultPin" label="Web secret vault PIN" />
+          <button
+            type="button"
+            class="chrome-btn chrome-btn-primary inline-flex items-center gap-1 self-start"
+            :disabled="!isVaultPinComplete"
+            @click="unlockVault"
+          >
             <Unlock :size="12" />
-            {{ vaultStatus.initialized ? "Unlock" : "Create" }}
+            {{ vaultStore.status.initialized ? "Unlock" : "Set PIN" }}
           </button>
         </div>
       </div>

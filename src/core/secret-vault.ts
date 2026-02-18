@@ -4,6 +4,7 @@ import type { ConnectionSecret } from "./types";
 const WEB_VAULT_KEY = "qwerio.web.secretVault.v1";
 const WEB_VAULT_VERSION = 1;
 const PBKDF2_ITERATIONS = 250_000;
+const VAULT_PIN_PATTERN = /^\d{5}$/;
 
 type WebVaultEnvelope = {
   version: number;
@@ -94,9 +95,19 @@ function fromBase64(encoded: string): Uint8Array {
   return bytes;
 }
 
-async function deriveVaultKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+function normalizeVaultPin(pin: string): string {
+  return pin.trim();
+}
+
+function assertValidVaultPin(pin: string): void {
+  if (!VAULT_PIN_PATTERN.test(pin)) {
+    throw new Error("PIN must be exactly 5 digits.");
+  }
+}
+
+async function deriveVaultKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
   const encoder = new TextEncoder();
-  const baseKey = await crypto.subtle.importKey("raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
 
   return crypto.subtle.deriveKey(
     {
@@ -134,7 +145,7 @@ function requireUnlockedWebVault(): WebVaultCache {
   }
 
   if (!webVaultCache) {
-    throw new Error("Web secret vault is locked. Unlock it with your passphrase first.");
+    throw new Error("Web secret vault is locked. Unlock it with your PIN first.");
   }
 
   return webVaultCache;
@@ -158,20 +169,19 @@ export function getWebSecretVaultStatus(): WebVaultStatus {
   };
 }
 
-export async function unlockWebSecretVault(passphrase: string): Promise<void> {
+export async function unlockWebSecretVault(pinInput: string): Promise<void> {
   if (!isWebVaultSupported()) {
     throw new Error("Web secret vault is unavailable in this runtime.");
   }
 
-  if (passphrase.length < 8) {
-    throw new Error("Passphrase must be at least 8 characters.");
-  }
+  const pin = normalizeVaultPin(pinInput);
+  assertValidVaultPin(pin);
 
   const envelope = getWebVaultEnvelope();
 
   if (!envelope) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
-    const key = await deriveVaultKey(passphrase, salt);
+    const key = await deriveVaultKey(pin, salt);
 
     webVaultCache = {
       key,
@@ -187,7 +197,7 @@ export async function unlockWebSecretVault(passphrase: string): Promise<void> {
     const salt = fromBase64(envelope.salt);
     const iv = fromBase64(envelope.iv);
     const ciphertext = fromBase64(envelope.ciphertext);
-    const key = await deriveVaultKey(passphrase, salt);
+    const key = await deriveVaultKey(pin, salt);
 
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
@@ -204,7 +214,7 @@ export async function unlockWebSecretVault(passphrase: string): Promise<void> {
       secrets: parsed,
     };
   } catch {
-    throw new Error("Invalid passphrase or corrupted vault data.");
+    throw new Error("Invalid PIN or corrupted vault data.");
   }
 }
 
