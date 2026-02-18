@@ -79,16 +79,6 @@ watch(
       return;
     }
 
-    if (route.name === "connections") {
-      appTabsStore.openPageTab({
-        pageKey: "connections",
-        title: "Connections",
-        routePath: "/connections",
-        activate: true,
-      });
-      return;
-    }
-
     if (route.name === "table") {
       const tableTabId =
         typeof route.params.tableTabId === "string" ? route.params.tableTabId : "";
@@ -101,15 +91,6 @@ watch(
         activate: true,
       });
       return;
-    }
-
-    if (route.name === "settings") {
-      appTabsStore.openPageTab({
-        pageKey: "settings",
-        title: "Settings",
-        routePath: "/settings",
-        activate: true,
-      });
     }
   },
   { immediate: true },

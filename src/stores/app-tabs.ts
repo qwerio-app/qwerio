@@ -40,11 +40,29 @@ type OpenPageTabInput = {
   activate?: boolean;
 };
 
+function isTabbablePageKey(pageKey: string): boolean {
+  return pageKey.startsWith("table:");
+}
+
+function isTabbableAppTab(tab: AppTab): boolean {
+  if (tab.kind === "query") {
+    return true;
+  }
+
+  return isTabbablePageKey(tab.pageKey);
+}
+
 export const useAppTabsStore = defineStore("app-tabs", () => {
   const tabs = useStorage<AppTab[]>("qwerio.ui.appTabs", []);
   const activeTabId = useStorage<string | null>("qwerio.ui.activeAppTabId", null);
 
+  function sanitizeTabs(): void {
+    tabs.value = tabs.value.filter(isTabbableAppTab);
+  }
+
   function ensureActiveTab(): void {
+    sanitizeTabs();
+
     if (tabs.value.length === 0) {
       activeTabId.value = null;
       return;
@@ -94,6 +112,10 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
   }
 
   function openPageTab({ pageKey, title, routePath, activate = true }: OpenPageTabInput): PageAppTab {
+    if (!isTabbablePageKey(pageKey)) {
+      throw new Error(`Unsupported page tab key: ${pageKey}`);
+    }
+
     let tab = tabs.value.find((item): item is PageAppTab => item.kind === "page" && item.pageKey === pageKey);
 
     if (!tab) {

@@ -2,13 +2,11 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Cable, SlidersHorizontal } from "lucide-vue-next";
-import { useAppTabsStore } from "../../stores/app-tabs";
 import { useUiStore } from "../../stores/ui";
 
 const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
-const appTabsStore = useAppTabsStore();
 
 const primaryLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
@@ -29,40 +27,9 @@ const navItemClass = computed(() =>
     : "flex items-center gap-2.5 border px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition",
 );
 
-async function openConnectionsTab(): Promise<void> {
-  appTabsStore.openPageTab({
-    pageKey: "connections",
-    title: "Connections",
-    routePath: "/connections",
-    activate: true,
-  });
-
-  if (route.path !== "/connections") {
-    await router.push("/connections");
-  }
-}
-
-async function openSettingsTab(): Promise<void> {
-  appTabsStore.openPageTab({
-    pageKey: "settings",
-    title: "Settings",
-    routePath: "/settings",
-    activate: true,
-  });
-
-  if (route.path !== "/settings") {
-    await router.push("/settings");
-  }
-}
-
-function handleLinkNavigation(to: string): void {
-  if (to === "/connections") {
-    void openConnectionsTab();
-    return;
-  }
-
-  if (to === "/settings") {
-    void openSettingsTab();
+async function handleLinkNavigation(to: string): Promise<void> {
+  if (route.path !== to) {
+    await router.push(to);
   }
 }
 </script>
