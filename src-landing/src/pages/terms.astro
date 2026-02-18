@@ -1,0 +1,136 @@
+---
+import MarketingLayout from "../layouts/MarketingLayout.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { siteConfig } from "../config/site";
+---
+
+<MarketingLayout
+  title="Terms and Conditions | Qwerio"
+  description="Terms and conditions for access to Qwerio websites and services."
+  canonicalPath="/terms"
+>
+  <SiteHeader />
+
+  <main class="container legal-wrap">
+    <article class="legal-doc panel">
+      <header class="legal-header">
+        <p class="eyebrow">Legal</p>
+        <h1>Terms and Conditions</h1>
+        <p>
+          Last updated: <strong>{siteConfig.lastUpdated}</strong>
+        </p>
+      </header>
+
+      <section>
+        <h2>1. Agreement to Terms</h2>
+        <p>
+          These Terms and Conditions ("Terms") govern your use of {siteConfig.siteName} websites,
+          applications, and related services (collectively, the "Services") operated by
+          {siteConfig.companyName}. By accessing or using the Services, you agree to be bound by
+          these Terms.
+        </p>
+      </section>
+
+      <section>
+        <h2>2. Eligibility and Account Responsibilities</h2>
+        <p>
+          You represent that you are authorized to use the Services on behalf of yourself or your
+          organization. You are responsible for safeguarding access credentials and for all activity
+          occurring through your account or environment.
+        </p>
+      </section>
+
+      <section>
+        <h2>3. Acceptable Use</h2>
+        <p>You agree not to:</p>
+        <ul>
+          <li>Use the Services for unlawful, fraudulent, or abusive purposes.</li>
+          <li>Attempt to bypass security controls or probe infrastructure without authorization.</li>
+          <li>Interfere with platform performance, integrity, or availability.</li>
+          <li>Reverse engineer proprietary components except where allowed by applicable law.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. Customer Data and Database Access</h2>
+        <p>
+          You retain rights to data you query, store, or process through the Services. You confirm
+          you have all required permissions for any connected database or data source. You remain
+          responsible for compliance obligations related to your data use.
+        </p>
+      </section>
+
+      <section>
+        <h2>5. Intellectual Property</h2>
+        <p>
+          The Services, including software, branding, documentation, and visual assets, are owned
+          by {siteConfig.companyName} or its licensors and are protected by applicable intellectual
+          property laws.
+        </p>
+      </section>
+
+      <section>
+        <h2>6. Third-Party Services</h2>
+        <p>
+          The Services may interoperate with third-party tools or providers. {siteConfig.companyName}
+          is not responsible for third-party services, and your use of those services is governed by
+          their own terms and policies.
+        </p>
+      </section>
+
+      <section>
+        <h2>7. Disclaimer of Warranties</h2>
+        <p>
+          The Services are provided on an "as is" and "as available" basis to the fullest extent
+          permitted by law. We disclaim all warranties, express or implied, including merchantability,
+          fitness for a particular purpose, and non-infringement.
+        </p>
+      </section>
+
+      <section>
+        <h2>8. Limitation of Liability</h2>
+        <p>
+          To the maximum extent permitted by law, {siteConfig.companyName} will not be liable for
+          indirect, incidental, special, consequential, or punitive damages, or for lost profits,
+          revenues, data, or goodwill arising from use of the Services.
+        </p>
+      </section>
+
+      <section>
+        <h2>9. Indemnification</h2>
+        <p>
+          You agree to defend, indemnify, and hold harmless {siteConfig.companyName} from claims,
+          liabilities, damages, and expenses arising from your misuse of the Services or violation
+          of these Terms.
+        </p>
+      </section>
+
+      <section>
+        <h2>10. Termination</h2>
+        <p>
+          We may suspend or terminate access to the Services if you violate these Terms or if
+          required to protect users, infrastructure, or legal compliance.
+        </p>
+      </section>
+
+      <section>
+        <h2>11. Governing Law</h2>
+        <p>
+          These Terms are governed by applicable laws in your service agreement jurisdiction. You
+          may customize this section for your organization before production use.
+        </p>
+      </section>
+
+      <section>
+        <h2>12. Contact</h2>
+        <p>
+          For legal notices or questions about these Terms, contact
+          <a href={`mailto:${siteConfig.contactEmail}`}>{siteConfig.contactEmail}</a>.
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <SiteFooter />
+</MarketingLayout>
