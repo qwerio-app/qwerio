@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { Braces, RefreshCcw, Table2 } from "lucide-vue-next";
+import { useRouter } from "vue-router";
 import { useConnectionsStore } from "../../stores/connections";
 import { useWorkbenchStore } from "../../stores/workbench";
 
+const router = useRouter();
 const connectionsStore = useConnectionsStore();
 const workbenchStore = useWorkbenchStore();
 
@@ -12,6 +14,22 @@ const activeConnectionName = computed(() => connectionsStore.activeProfile?.name
 onMounted(async () => {
   await workbenchStore.refreshSchema();
 });
+
+async function openTable(schemaName: string, tableName: string): Promise<void> {
+  const activeConnection = connectionsStore.activeProfile;
+
+  if (!activeConnection) {
+    return;
+  }
+
+  const tableTab = workbenchStore.openTableTab({
+    connectionId: activeConnection.id,
+    schemaName,
+    tableName,
+  });
+
+  await router.push(`/tables/${tableTab.id}`);
+}
 </script>
 
 <template>
@@ -51,10 +69,16 @@ onMounted(async () => {
           <li
             v-for="table in workbenchStore.tableMap[schema.name] ?? []"
             :key="table.name"
-            class="mb-1 flex items-center gap-1.5 border border-transparent px-1.5 py-1 text-xs text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border)] hover:bg-[#141a24] hover:text-[var(--chrome-ink)]"
+            class="mb-1"
           >
-            <Table2 :size="12" class="text-[var(--chrome-yellow)]" />
-            <span class="truncate">{{ table.name }}</span>
+            <button
+              type="button"
+              class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-xs text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#141a24] hover:text-[var(--chrome-ink)]"
+              @click="openTable(schema.name, table.name)"
+            >
+              <Table2 :size="12" class="text-[var(--chrome-yellow)]" />
+              <span class="truncate">{{ table.name }}</span>
+            </button>
           </li>
         </ul>
       </div>

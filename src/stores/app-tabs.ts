@@ -1,12 +1,13 @@
 import { computed } from "vue";
 import { defineStore } from "pinia";
 import { useStorage } from "@vueuse/core";
+import { createNanoId } from "../core/nano-id";
 
 export type QueryAppTab = {
   id: string;
   kind: "query";
   title: string;
-  routePath: "/workbench";
+  routePath: string;
   queryTabId: string;
 };
 
@@ -28,6 +29,7 @@ type QueryTabSnapshot = {
 type OpenQueryTabInput = {
   queryTabId: string;
   title: string;
+  routePath: string;
   activate?: boolean;
 };
 
@@ -65,20 +67,23 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
     activeTabId.value = tabId;
   }
 
-  function openQueryTab({ queryTabId, title, activate = true }: OpenQueryTabInput): QueryAppTab {
+  function openQueryTab({ queryTabId, title, routePath, activate = true }: OpenQueryTabInput): QueryAppTab {
     let tab = tabs.value.find((item): item is QueryAppTab => item.kind === "query" && item.queryTabId === queryTabId);
 
     if (!tab) {
       tab = {
-        id: crypto.randomUUID(),
+        id: createNanoId(),
         kind: "query",
         title,
-        routePath: "/workbench",
+        routePath,
         queryTabId,
       };
       tabs.value.push(tab);
-    } else if (tab.title !== title) {
-      tab.title = title;
+    } else {
+      tab.routePath = routePath;
+      if (tab.title !== title) {
+        tab.title = title;
+      }
     }
 
     if (activate) {
@@ -93,7 +98,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
 
     if (!tab) {
       tab = {
-        id: crypto.randomUUID(),
+        id: createNanoId(),
         kind: "page",
         title,
         routePath,
@@ -147,6 +152,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
       }
 
       tab.title = sourceTab.title;
+      tab.routePath = `/query/${sourceTab.id}`;
       return true;
     });
 

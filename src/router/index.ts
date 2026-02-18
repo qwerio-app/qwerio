@@ -10,17 +10,22 @@ const router = createRouter({
       children: [
         {
           path: "",
-          redirect: { name: "workbench" },
+          redirect: { name: "query" },
         },
         {
-          path: "workbench",
-          name: "workbench",
-          component: () => import("../views/WorkbenchView.vue"),
+          path: "query/:queryTabId?",
+          name: "query",
+          component: () => import("../views/QueryView.vue"),
         },
         {
-          path: "connections",
+          path: "connections/:connectionId?",
           name: "connections",
           component: () => import("../views/ConnectionsView.vue"),
+        },
+        {
+          path: "tables/:tableTabId",
+          name: "table",
+          component: () => import("../views/TableView.vue"),
         },
         {
           path: "settings",

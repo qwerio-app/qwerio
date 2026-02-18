@@ -3,12 +3,14 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Cable, SlidersHorizontal } from "lucide-vue-next";
 import { useAppTabsStore } from "../../stores/app-tabs";
+import { useConnectionsStore } from "../../stores/connections";
 import { useUiStore } from "../../stores/ui";
 
 const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
 const appTabsStore = useAppTabsStore();
+const connectionsStore = useConnectionsStore();
 
 const primaryLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
@@ -30,15 +32,19 @@ const navItemClass = computed(() =>
 );
 
 async function openConnectionsTab(): Promise<void> {
+  const routePath = connectionsStore.activeConnectionId
+    ? `/connections/${connectionsStore.activeConnectionId}`
+    : "/connections";
+
   appTabsStore.openPageTab({
     pageKey: "connections",
     title: "Connections",
-    routePath: "/connections",
+    routePath,
     activate: true,
   });
 
-  if (route.path !== "/connections") {
-    await router.push("/connections");
+  if (route.path !== routePath) {
+    await router.push(routePath);
   }
 }
 
@@ -109,7 +115,7 @@ function handleLinkNavigation(to: string): void {
           type="button"
           :class="[
             navItemClass,
-            route.path === link.to
+            route.path.startsWith(link.to)
               ? 'border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] text-[var(--chrome-ink)]'
               : 'border-transparent text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:bg-[#151b24] hover:text-[var(--chrome-ink)]',
           ]"

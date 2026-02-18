@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, watch } from "vue";
 import { Pane, Splitpanes } from "splitpanes";
+import { useRoute, useRouter } from "vue-router";
 import ResultsGrid from "../components/workbench/ResultsGrid.vue";
 import SchemaTree from "../components/workbench/SchemaTree.vue";
 import SqlEditorPane from "../components/workbench/SqlEditorPane.vue";
 import { useWorkbenchStore } from "../stores/workbench";
 
+const route = useRoute();
+const router = useRouter();
 const workbenchStore = useWorkbenchStore();
 
 const activeSql = computed({
@@ -13,11 +16,55 @@ const activeSql = computed({
   set: (value: string) => workbenchStore.updateActiveSql(value),
 });
 
+function getRouteQueryTabId(): string {
+  return typeof route.params.queryTabId === "string" ? route.params.queryTabId : "";
+}
+
+function getFallbackQueryTabId(): string {
+  return workbenchStore.activeTab?.id ?? workbenchStore.tabs[0]?.id ?? workbenchStore.addTab().id;
+}
+
+watch(
+  () => route.params.queryTabId,
+  () => {
+    if (route.name !== "query") {
+      return;
+    }
+
+    const queryTabId = getRouteQueryTabId();
+
+    if (!queryTabId) {
+      void router.replace({
+        name: "query",
+        params: { queryTabId: getFallbackQueryTabId() },
+      });
+      return;
+    }
+
+    if (!workbenchStore.setActiveTab(queryTabId)) {
+      void router.replace({
+        name: "query",
+        params: { queryTabId: getFallbackQueryTabId() },
+      });
+    }
+  },
+  { immediate: true },
+);
+
 watch(
   () => workbenchStore.activeTabId,
-  () => {
+  (tabId) => {
+    if (route.name !== "query") {
+      return;
+    }
+
+    if (tabId !== getRouteQueryTabId()) {
+      void router.replace({ name: "query", params: { queryTabId: tabId } });
+    }
+
     void workbenchStore.refreshSchema();
   },
+  { immediate: true },
 );
 </script>
 

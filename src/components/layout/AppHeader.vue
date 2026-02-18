@@ -32,6 +32,18 @@ const activeConnectionState = computed(() =>
 const isSystemStatusOpen = ref(false);
 const systemStatusMenuRef = ref<HTMLElement | null>(null);
 
+function toQueryRoutePath(queryTabId: string): string {
+  return `/query/${queryTabId}`;
+}
+
+function toConnectionRoutePath(connectionId: string | null): string {
+  return connectionId ? `/connections/${connectionId}` : "/connections";
+}
+
+function toTableRoutePath(tableTabId: string): string {
+  return `/tables/${tableTabId}`;
+}
+
 watch(
   () => workbenchStore.tabs.map((tab) => ({ id: tab.id, title: tab.title })),
   (queryTabs) => {
@@ -41,10 +53,25 @@ watch(
 );
 
 watch(
-  () => [route.name, route.path, workbenchStore.activeTabId] as const,
+  () => [
+    route.name,
+    route.path,
+    route.params.queryTabId,
+    route.params.connectionId,
+    route.params.tableTabId,
+    workbenchStore.activeTabId,
+    connectionsStore.activeConnectionId,
+  ] as const,
   () => {
-    if (route.name === "workbench") {
-      const queryTab = workbenchStore.activeTab;
+    if (route.name === "query") {
+      const queryTabId =
+        typeof route.params.queryTabId === "string"
+          ? route.params.queryTabId
+          : workbenchStore.activeTab?.id;
+      const queryTab = queryTabId
+        ? workbenchStore.tabs.find((tab) => tab.id === queryTabId) ?? workbenchStore.activeTab
+        : workbenchStore.activeTab;
+
       if (!queryTab) {
         return;
       }
@@ -52,16 +79,37 @@ watch(
       appTabsStore.openQueryTab({
         queryTabId: queryTab.id,
         title: queryTab.title,
+        routePath: toQueryRoutePath(queryTab.id),
         activate: true,
       });
       return;
     }
 
     if (route.name === "connections") {
+      const routeConnectionId =
+        typeof route.params.connectionId === "string" ? route.params.connectionId : null;
+      const connectionProfile =
+        connectionsStore.profiles.find((profile) => profile.id === routeConnectionId) ?? null;
+      const connectionId = connectionProfile?.id ?? connectionsStore.activeConnectionId ?? null;
+
       appTabsStore.openPageTab({
         pageKey: "connections",
-        title: "Connections",
-        routePath: "/connections",
+        title: connectionProfile ? `Connection: ${connectionProfile.name}` : "Connections",
+        routePath: toConnectionRoutePath(connectionId),
+        activate: true,
+      });
+      return;
+    }
+
+    if (route.name === "table") {
+      const tableTabId =
+        typeof route.params.tableTabId === "string" ? route.params.tableTabId : "";
+      const tableTab = tableTabId ? workbenchStore.getTableTab(tableTabId) : null;
+
+      appTabsStore.openPageTab({
+        pageKey: `table:${tableTabId}`,
+        title: tableTab?.title ?? "Table",
+        routePath: tableTabId ? toTableRoutePath(tableTabId) : route.path,
         activate: true,
       });
       return;
@@ -156,6 +204,7 @@ async function openNewQueryTab(): Promise<void> {
   const appTab = appTabsStore.openQueryTab({
     queryTabId: queryTab.id,
     title: queryTab.title,
+    routePath: toQueryRoutePath(queryTab.id),
     activate: true,
   });
 
@@ -169,6 +218,9 @@ async function closeTab(tab: AppTab): Promise<void> {
     if (!closed) {
       return;
     }
+  } else if (tab.pageKey.startsWith("table:")) {
+    const tableTabId = tab.pageKey.slice("table:".length);
+    workbenchStore.removeTableTab(tableTabId);
   }
 
   const nextTab = appTabsStore.closeTab(tab.id);
@@ -182,6 +234,7 @@ async function closeTab(tab: AppTab): Promise<void> {
   const fallbackAppTab = appTabsStore.openQueryTab({
     queryTabId: fallbackQuery.id,
     title: fallbackQuery.title,
+    routePath: toQueryRoutePath(fallbackQuery.id),
     activate: true,
   });
 

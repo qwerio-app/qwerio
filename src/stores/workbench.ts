@@ -6,11 +6,26 @@ import { getQueryEngine } from "../core/query-engine-service";
 import type { QueryResult } from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
+import { createNanoId } from "../core/nano-id";
 
 export type QueryTab = {
   id: string;
   title: string;
   sql: string;
+};
+
+export type TableTab = {
+  id: string;
+  title: string;
+  connectionId: string;
+  schemaName: string;
+  tableName: string;
+};
+
+type OpenTableTabInput = {
+  connectionId: string;
+  schemaName: string;
+  tableName: string;
 };
 
 type TableMap = Record<string, Array<{ name: string }>>;
@@ -34,15 +49,18 @@ function getNextQueryIndex(tabs: QueryTab[]): number {
 export const useWorkbenchStore = defineStore("workbench", () => {
   const tabs = useStorage<QueryTab[]>("qwerio.workbench.tabs", [
     {
-      id: crypto.randomUUID(),
+      id: createNanoId(),
       title: "Query 1",
       sql: DEFAULT_SQL,
     },
   ]);
+
+  const tableTabs = useStorage<TableTab[]>("qwerio.workbench.tableTabs", []);
+
   if (tabs.value.length === 0) {
     tabs.value = [
       {
-        id: crypto.randomUUID(),
+        id: createNanoId(),
         title: "Query 1",
         sql: DEFAULT_SQL,
       },
@@ -66,7 +84,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     (tabIds) => {
       if (tabIds.length === 0) {
         const fallbackTab: QueryTab = {
-          id: crypto.randomUUID(),
+          id: createNanoId(),
           title: "Query 1",
           sql: DEFAULT_SQL,
         };
@@ -95,7 +113,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     const appSettingsStore = useAppSettingsStore();
     const nextIndex = getNextQueryIndex(tabs.value);
     const newTab: QueryTab = {
-      id: crypto.randomUUID(),
+      id: createNanoId(),
       title: `Query ${nextIndex}`,
       sql: appSettingsStore.newQueryTemplateSql.trim() || DEFAULT_SQL,
     };
@@ -144,6 +162,39 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     }
 
     tab.sql = sql;
+  }
+
+  function openTableTab({ connectionId, schemaName, tableName }: OpenTableTabInput): TableTab {
+    let tab = tableTabs.value.find(
+      (item) =>
+        item.connectionId === connectionId &&
+        item.schemaName === schemaName &&
+        item.tableName === tableName,
+    );
+    const title = `${schemaName}.${tableName}`;
+
+    if (!tab) {
+      tab = {
+        id: createNanoId(),
+        title,
+        connectionId,
+        schemaName,
+        tableName,
+      };
+      tableTabs.value = [tab, ...tableTabs.value];
+    } else {
+      tab.title = title;
+    }
+
+    return tab;
+  }
+
+  function getTableTab(tableTabId: string): TableTab | null {
+    return tableTabs.value.find((tab) => tab.id === tableTabId) ?? null;
+  }
+
+  function removeTableTab(tableTabId: string): void {
+    tableTabs.value = tableTabs.value.filter((tab) => tab.id !== tableTabId);
   }
 
   function formatActiveSql(): void {
@@ -227,10 +278,14 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     errorMessage,
     schemaNames,
     tableMap,
+    tableTabs,
     addTab,
     closeTab,
     setActiveTab,
     updateActiveSql,
+    openTableTab,
+    getTableTab,
+    removeTableTab,
     formatActiveSql,
     executeActiveQuery,
     refreshSchema,

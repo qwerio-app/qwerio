@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useAppSettingsStore } from "../stores/app-settings";
-import SettingsView from "./SettingsView.vue";
 
 const appSettingsStore = useAppSettingsStore();
 

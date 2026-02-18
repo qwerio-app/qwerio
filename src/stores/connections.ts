@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { useStorage } from "@vueuse/core";
 import { z } from "zod";
 import type { ConnectionProfile } from "../core/types";
+import { createNanoId } from "../core/nano-id";
 
 const desktopTargetSchema = z.object({
   kind: z.literal("desktop-tcp"),
@@ -58,7 +59,7 @@ export const useConnectionsStore = defineStore("connections", () => {
 
     const now = new Date().toISOString();
     const profile: ConnectionProfile = {
-      id: crypto.randomUUID(),
+      id: createNanoId(),
       name: parsed.data.name,
       target: parsed.data.target,
       createdAt: now,
