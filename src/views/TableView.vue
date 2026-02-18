@@ -49,23 +49,18 @@ const connectionProfile = computed<ConnectionProfile | null>(() => {
   );
 });
 
-const tableLabel = computed(() => {
+const tableTitle = computed(() => {
   if (!tableTab.value) {
     return "Unknown table";
   }
 
-  return `${tableTab.value.schemaName}.${tableTab.value.tableName}`;
+  return tableTab.value.tableName;
 });
 
-const connectionLabel = computed(() => {
-  if (!connectionProfile.value) {
-    return "Connection unavailable";
-  }
-
-  return connectionProfile.value.name;
-});
-
-function quoteIdentifier(dialect: ConnectionProfile["target"]["dialect"], identifier: string): string {
+function quoteIdentifier(
+  dialect: ConnectionProfile["target"]["dialect"],
+  identifier: string,
+): string {
   if (dialect === "mysql") {
     return `\`${identifier.replace(/`/g, "``")}\``;
   }
@@ -78,8 +73,14 @@ function buildSql(profile: ConnectionProfile): string {
     return "";
   }
 
-  const schema = quoteIdentifier(profile.target.dialect, tableTab.value.schemaName);
-  const table = quoteIdentifier(profile.target.dialect, tableTab.value.tableName);
+  const schema = quoteIdentifier(
+    profile.target.dialect,
+    tableTab.value.schemaName,
+  );
+  const table = quoteIdentifier(
+    profile.target.dialect,
+    tableTab.value.tableName,
+  );
   const parsedLimit = Number(filters.limit);
   const safeLimit = Number.isFinite(parsedLimit)
     ? Math.min(Math.max(Math.floor(parsedLimit), 1), MAX_LIMIT)
@@ -104,7 +105,8 @@ async function loadTableRows(): Promise<void> {
 
   if (!tableTab.value) {
     result.value = null;
-    errorMessage.value = "Table tab not found. Reopen the table from the schema tree.";
+    errorMessage.value =
+      "Table tab not found. Reopen the table from the schema tree.";
     return;
   }
 
@@ -112,7 +114,8 @@ async function loadTableRows(): Promise<void> {
 
   if (!profile) {
     result.value = null;
-    errorMessage.value = "Connection profile was removed. Reopen the table from an active connection.";
+    errorMessage.value =
+      "Connection profile was removed. Reopen the table from an active connection.";
     return;
   }
 
@@ -128,7 +131,9 @@ async function loadTableRows(): Promise<void> {
     });
   } catch (error) {
     errorMessage.value =
-      error instanceof Error ? error.message : "Unable to load rows for this table.";
+      error instanceof Error
+        ? error.message
+        : "Unable to load rows for this table.";
   } finally {
     isLoading.value = false;
   }
@@ -158,34 +163,50 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-full flex-1 flex-col gap-2">
+  <div class="flex h-full min-h-0 flex-1 flex-col gap-2">
     <section class="panel-tight p-3">
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--chrome-border)] pb-3">
+      <div
+        class="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--chrome-border)] pb-3"
+      >
         <div>
-          <h2 class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]">Table View</h2>
-          <p class="text-xs text-[var(--chrome-ink-dim)]">{{ connectionLabel }} / {{ tableLabel }}</p>
+          <h2
+            class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
+          >
+            {{ tableTitle }}
+          </h2>
         </div>
 
         <div class="inline-flex items-center gap-2">
+          <label class="inline-flex items-center gap-2">
+            <span class="chrome-label">Limit</span>
+            <input
+              v-model.number="filters.limit"
+              class="chrome-input chrome-input-sm w-24"
+              type="number"
+              min="1"
+              :max="MAX_LIMIT"
+            />
+          </label>
           <span class="chrome-pill" v-if="isLoading">Loading...</span>
-          <button type="button" class="chrome-btn inline-flex items-center gap-1" @click="loadTableRows">
+          <button
+            type="button"
+            class="chrome-btn inline-flex items-center gap-1"
+            @click="loadTableRows"
+          >
             <RefreshCcw :size="13" />
             Refresh
           </button>
         </div>
       </div>
 
-      <div class="mt-3 grid gap-2 md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
-        <label class="chrome-label">
-          <span>Limit</span>
-          <input v-model.number="filters.limit" class="chrome-input mt-1" type="number" min="1" :max="MAX_LIMIT" />
-        </label>
-
+      <div
+        class="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+      >
         <label class="chrome-label">
           <span>Where</span>
           <input
             v-model="filters.whereClause"
-            class="chrome-input mt-1"
+            class="chrome-input chrome-input-sm mt-1"
             type="text"
             placeholder="id > 100"
           />
@@ -195,21 +216,31 @@ watch(
           <span>Order</span>
           <input
             v-model="filters.orderBy"
-            class="chrome-input mt-1"
+            class="chrome-input chrome-input-sm mt-1"
             type="text"
             placeholder="created_at desc"
           />
         </label>
 
-        <button type="button" class="chrome-btn mt-auto inline-flex items-center gap-1" @click="applyFilters">
-          <Filter :size="12" />
-          Apply
-        </button>
+        <div class="flex items-center gap-2 md:pt-5">
+          <button
+            type="button"
+            class="chrome-btn inline-flex items-center gap-1"
+            @click="applyFilters"
+          >
+            <Filter :size="12" />
+            Apply
+          </button>
 
-        <button type="button" class="chrome-btn mt-auto inline-flex items-center gap-1" @click="resetFilters">
-          <RotateCcw :size="12" />
-          Reset
-        </button>
+          <button
+            type="button"
+            class="chrome-btn inline-flex items-center gap-1"
+            @click="resetFilters"
+          >
+            <RotateCcw :size="12" />
+            Reset
+          </button>
+        </div>
       </div>
     </section>
 

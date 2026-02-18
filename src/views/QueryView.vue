@@ -3,8 +3,7 @@ import { computed, watch } from "vue";
 import { Pane, Splitpanes } from "splitpanes";
 import { useRoute, useRouter } from "vue-router";
 import ResultsGrid from "../components/workbench/ResultsGrid.vue";
-import SchemaTree from "../components/workbench/SchemaTree.vue";
-import SqlEditorPane from "../components/workbench/SqlEditorPane.vue";
+import QueryEditor from "../components/workbench/QueryEditor.vue";
 import { useWorkbenchStore } from "../stores/workbench";
 
 const route = useRoute();
@@ -61,38 +60,28 @@ watch(
     if (tabId !== getRouteQueryTabId()) {
       void router.replace({ name: "query", params: { queryTabId: tabId } });
     }
-
-    void workbenchStore.refreshSchema();
   },
   { immediate: true },
 );
 </script>
 
 <template>
-  <div class="flex min-h-full flex-1 flex-col">
-    <Splitpanes class="default-theme flex min-h-0 flex-1 gap-2">
-      <Pane :size="23" :min-size="15">
-        <SchemaTree />
+  <div class="flex h-full min-h-0 flex-1 flex-col">
+    <Splitpanes horizontal class="default-theme flex min-h-0 flex-1 gap-2">
+      <Pane :size="46" :min-size="28">
+        <QueryEditor
+          v-model="activeSql"
+          :is-running="workbenchStore.isRunning"
+          @format="workbenchStore.formatActiveSql"
+          @run="workbenchStore.executeActiveQuery"
+        />
       </Pane>
 
-      <Pane :size="77" :min-size="45">
-        <Splitpanes horizontal class="default-theme flex min-h-0 flex-1 gap-2">
-          <Pane :size="46" :min-size="28">
-            <SqlEditorPane
-              v-model="activeSql"
-              :is-running="workbenchStore.isRunning"
-              @format="workbenchStore.formatActiveSql"
-              @run="workbenchStore.executeActiveQuery"
-            />
-          </Pane>
-
-          <Pane :size="54" :min-size="28">
-            <ResultsGrid
-              :result="workbenchStore.activeResult"
-              :error-message="workbenchStore.errorMessage"
-            />
-          </Pane>
-        </Splitpanes>
+      <Pane :size="54" :min-size="28">
+        <ResultsGrid
+          :result="workbenchStore.activeResult"
+          :error-message="workbenchStore.errorMessage"
+        />
       </Pane>
     </Splitpanes>
   </div>

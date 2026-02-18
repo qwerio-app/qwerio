@@ -40,6 +40,26 @@ function toTableRoutePath(tableTabId: string): string {
   return `/tables/${tableTabId}`;
 }
 
+function getTabTitle(tab: AppTab): string {
+  if (tab.kind === "query") {
+    return tab.title;
+  }
+
+  if (!tab.pageKey.startsWith("table:")) {
+    return tab.title;
+  }
+
+  const tableTabId = tab.pageKey.slice("table:".length);
+  const tableTab = workbenchStore.getTableTab(tableTabId);
+
+  if (tableTab?.tableName) {
+    return tableTab.tableName;
+  }
+
+  const dotIndex = tab.title.lastIndexOf(".");
+  return dotIndex >= 0 ? tab.title.slice(dotIndex + 1) : tab.title;
+}
+
 watch(
   () => workbenchStore.tabs.map((tab) => ({ id: tab.id, title: tab.title })),
   (queryTabs) => {
@@ -86,7 +106,7 @@ watch(
 
       appTabsStore.openPageTab({
         pageKey: `table:${tableTabId}`,
-        title: tableTab?.title ?? "Table",
+        title: tableTab?.tableName ?? "Table",
         routePath: tableTabId ? toTableRoutePath(tableTabId) : route.path,
         activate: true,
       });
@@ -230,7 +250,7 @@ async function closeTab(tab: AppTab): Promise<void> {
         ]"
         @click="activateTab(tab)"
       >
-        <span class="max-w-36 truncate">{{ tab.title }}</span>
+        <span class="max-w-36 truncate">{{ getTabTitle(tab) }}</span>
         <X :size="13" class="opacity-80" @click.stop="closeTab(tab)" />
       </button>
 

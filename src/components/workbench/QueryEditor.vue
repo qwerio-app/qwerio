@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MonacoEditor from "@guolao/vue-monaco-editor";
+import type { MonacoEditor as MonacoInstance } from "@guolao/vue-monaco-editor";
 import { Bot, Play, Wand2 } from "lucide-vue-next";
 
 const props = defineProps<{
@@ -29,20 +30,48 @@ const editorOptions = {
   lineNumbersMinChars: 3,
   scrollBeyondLastLine: false,
 };
+
+const monacoTheme = "qwerio-dark";
+
+const handleBeforeMount = (monaco: MonacoInstance): void => {
+  monaco.editor.defineTheme(monacoTheme, {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.lineHighlightBorder": "#161b24",
+      "editorCursor.foreground": "#9ca1ad",
+    },
+  });
+};
 </script>
 
 <template>
   <section class="panel-tight flex h-full min-h-0 flex-col overflow-hidden">
-    <div class="chrome-panel-header flex items-center justify-between px-2.5 py-2">
-      <p class="font-display text-base font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">SQL Editor</p>
+    <div
+      class="chrome-panel-header flex items-center justify-between px-2.5 py-2"
+    >
+      <p
+        class="font-display text-base font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
+      >
+        SQL Editor
+      </p>
 
       <div class="flex items-center gap-1.5">
-        <button type="button" class="chrome-btn inline-flex items-center gap-1" @click="emit('format')">
+        <button
+          type="button"
+          class="chrome-btn inline-flex items-center gap-1"
+          @click="emit('format')"
+        >
           <Wand2 :size="12" />
           Format
         </button>
 
-        <button type="button" class="chrome-btn inline-flex items-center gap-1" disabled>
+        <button
+          type="button"
+          class="chrome-btn inline-flex items-center gap-1"
+          disabled
+        >
           <Bot :size="12" />
           Explain
         </button>
@@ -59,13 +88,14 @@ const editorOptions = {
       </div>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-hidden border-t border-[var(--chrome-border)]">
+    <div class="min-h-0 flex-1 overflow-hidden">
       <MonacoEditor
         v-model:value="sqlValue"
         class="h-full min-h-[220px]"
         language="sql"
-        theme="vs-dark"
+        :theme="monacoTheme"
         :options="editorOptions"
+        @beforeMount="handleBeforeMount"
       />
     </div>
   </section>
