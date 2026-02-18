@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import {
   CheckCircle2,
-  Circle,
   FlaskConical,
   Globe2,
-  Lock,
   Monitor,
   Pencil,
+  Plus,
   Trash2,
-  Unlock,
+  X,
 } from "lucide-vue-next";
-import VaultPinInput from "../components/security/VaultPinInput.vue";
 import {
   deleteConnectionSecret,
   loadConnectionSecret,
@@ -32,12 +30,12 @@ const isTesting = ref(false);
 const runtimeMode = getRuntimeMode();
 const isWebRuntime = runtimeMode === "web";
 const vaultStore = useVaultStore();
-const vaultPin = ref("");
+const isModalOpen = ref(false);
 const editingConnectionId = ref<string | null>(null);
 const editingSecret = ref<ConnectionSecret | null>(null);
 
 const isEditing = computed(() => Boolean(editingConnectionId.value));
-const isVaultPinComplete = computed(() => vaultPin.value.length === 5);
+const modalTitle = computed(() => (isEditing.value ? "Edit Connection" : "New Connection"));
 
 const form = reactive({
   name: "",
@@ -61,64 +59,22 @@ function refreshVaultStatus(): void {
   vaultStore.refreshStatus();
 }
 
-async function unlockVault(): Promise<void> {
-  if (!isWebRuntime) {
-    return;
-  }
-
-  feedback.value = "";
-
-  if (!isVaultPinComplete.value) {
-    feedback.value = "Enter your full 5-digit PIN.";
-    return;
-  }
-
-  try {
-    await vaultStore.unlockWithPin(vaultPin.value);
-    refreshVaultStatus();
-    vaultPin.value = "";
-    feedback.value = "Web secret vault unlocked.";
-  } catch (error) {
-    feedback.value = error instanceof Error ? error.message : "Unable to unlock web secret vault.";
-  }
-}
-
-function lockVault(): void {
-  if (!isWebRuntime) {
-    return;
-  }
-
-  vaultStore.lock();
-  refreshVaultStatus();
-  feedback.value = "Web secret vault locked.";
-}
-
 async function ensureWebVaultUnlockedFor(action: "save" | "test"): Promise<boolean> {
   if (!isWebRuntime) {
     return true;
   }
 
+  refreshVaultStatus();
+
   if (vaultStore.status.unlocked) {
     return true;
   }
 
-  if (!isVaultPinComplete.value) {
-    feedback.value =
-      action === "save"
-        ? "Enter your 5-digit PIN to unlock the web secret vault before saving web connections."
-        : "Enter your 5-digit PIN to unlock the web secret vault before testing web connections.";
-    return false;
-  }
-
-  try {
-    await vaultStore.unlockWithPin(vaultPin.value);
-    refreshVaultStatus();
-    vaultPin.value = "";
-    return true;
-  } catch (error) {
-    feedback.value = error instanceof Error ? error.message : "Unable to unlock web secret vault.";
-    return false;
-  }
+  feedback.value =
+    action === "save"
+      ? "Unlock the web secret vault before saving web connections."
+      : "Unlock the web secret vault before testing web connections.";
+  return false;
 }
 
 function toConnectionTarget(): ConnectionTarget {
@@ -289,6 +245,35 @@ function resetForm(): void {
   form.providerPassword = "";
 }
 
+function connectionKindLabel(profile: ConnectionProfile): string {
+  return profile.target.kind === "desktop-tcp" ? "Desktop TCP" : "Web Provider";
+}
+
+function connectionTargetLabel(profile: ConnectionProfile): string {
+  if (profile.target.kind === "desktop-tcp") {
+    return `${profile.target.host}:${profile.target.port}/${profile.target.database}`;
+  }
+
+  const endpoint = profile.target.endpoint.trim();
+  return endpoint ? `${profile.target.provider} · ${endpoint}` : profile.target.provider;
+}
+
+function openNewConnectionModal(): void {
+  feedback.value = "";
+  resetForm();
+  isModalOpen.value = true;
+}
+
+function closeConnectionModal(): void {
+  if (isSubmitting.value || isTesting.value) {
+    return;
+  }
+
+  isModalOpen.value = false;
+  feedback.value = "";
+  resetForm();
+}
+
 function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
   try {
     const url = new URL(connectionString);
@@ -367,13 +352,13 @@ function hydrateFormFromProfile(profile: ConnectionProfile, secret: ConnectionSe
   }
 }
 
-async function startEditConnection(connectionId: string): Promise<void> {
+async function startEditConnection(connectionId: string): Promise<boolean> {
   feedback.value = "";
   const profile = store.profiles.find((item) => item.id === connectionId);
 
   if (!profile) {
     feedback.value = "Connection profile not found.";
-    return;
+    return false;
   }
 
   editingConnectionId.value = profile.id;
@@ -394,11 +379,16 @@ async function startEditConnection(connectionId: string): Promise<void> {
         ? `${error.message} Enter credentials and save to update this profile.`
         : "Unable to load stored credentials. Enter credentials and save to update this profile.";
   }
+
+  return true;
 }
 
-function cancelEditing(): void {
-  feedback.value = "";
-  resetForm();
+async function openEditConnectionModal(connectionId: string): Promise<void> {
+  if (!(await startEditConnection(connectionId))) {
+    return;
+  }
+
+  isModalOpen.value = true;
 }
 
 async function testConnection(): Promise<void> {
@@ -505,6 +495,7 @@ async function submitConnection(): Promise<void> {
 
       store.setActiveConnection(editingId);
       feedback.value = "Connection updated with encrypted credentials.";
+      isModalOpen.value = false;
       resetForm();
       return;
     }
@@ -530,6 +521,7 @@ async function submitConnection(): Promise<void> {
 
     store.setActiveConnection(result.profile.id);
     feedback.value = "Connection saved with encrypted credentials.";
+    isModalOpen.value = false;
     resetForm();
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "Unable to save connection.";
@@ -546,6 +538,7 @@ async function removeConnection(id: string): Promise<void> {
     store.removeConnection(id);
 
     if (editingConnectionId.value === id) {
+      isModalOpen.value = false;
       resetForm();
     }
   } catch (error) {
@@ -553,167 +546,167 @@ async function removeConnection(id: string): Promise<void> {
   }
 }
 
-onMounted(() => {
-  refreshVaultStatus();
-});
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[400px_minmax(0,1fr)]">
-    <section class="panel-tight qwerio-scroll overflow-auto p-3">
-      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connection Provisioning</h2>
-      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-        Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres, PlanetScale HTTP for MySQL).
-      </p>
-
-      <p v-if="isEditing" class="mt-2 text-xs text-[var(--chrome-yellow)]">
-        Editing profile. Test and save to apply updates.
-      </p>
-
-      <div v-if="isWebRuntime" class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--chrome-ink-dim)]">Web Secret Vault</p>
-            <p class="mt-1 text-xs">
-              <span class="chrome-pill" :class="vaultStore.status.unlocked ? 'chrome-pill-ok' : 'chrome-pill-bad'">
-                {{ vaultStore.status.unlocked ? "Unlocked" : "Locked" }}
-              </span>
-            </p>
-          </div>
-
-          <button v-if="vaultStore.status.unlocked" type="button" class="chrome-btn inline-flex items-center gap-1" @click="lockVault">
-            <Lock :size="12" />
-            Lock
-          </button>
+  <div class="qwerio-scroll min-h-0 flex-1 overflow-auto p-3">
+    <section class="panel-tight p-3">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Connections</h2>
+          <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+            Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres, PlanetScale HTTP for MySQL).
+          </p>
         </div>
 
-        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center" v-if="!vaultStore.status.unlocked">
-          <VaultPinInput v-model="vaultPin" label="Web secret vault PIN" />
-          <button
-            type="button"
-            class="chrome-btn chrome-btn-primary inline-flex items-center gap-1 self-start"
-            :disabled="!isVaultPinComplete"
-            @click="unlockVault"
-          >
-            <Unlock :size="12" />
-            {{ vaultStore.status.initialized ? "Unlock" : "Set PIN" }}
-          </button>
-        </div>
+        <span class="chrome-pill">{{ store.profiles.length }} Saved</span>
       </div>
 
-      <form class="mt-4 flex flex-col gap-3" @submit.prevent="submitConnection">
-        <label class="chrome-label">
-          <span>Name</span>
-          <input v-model="form.name" class="chrome-input mt-1" type="text" />
-        </label>
+      <p v-if="feedback && !isModalOpen" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
 
-        <div class="grid grid-cols-2 gap-3">
-          <label class="chrome-label">
-            <span>Mode</span>
-            <select v-model="form.kind" class="chrome-input mt-1">
-              <option value="desktop-tcp" :disabled="isWebRuntime">Desktop TCP</option>
-              <option value="web-provider">Web Provider</option>
-            </select>
-          </label>
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <button
+          type="button"
+          class="group flex min-h-[168px] flex-col justify-center gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
+          :disabled="isSubmitting || isTesting"
+          @click="openNewConnectionModal"
+        >
+          <div class="inline-flex h-8 w-8 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#121824] text-[var(--chrome-red)] transition group-hover:border-[var(--chrome-red)]">
+            <Plus :size="16" />
+          </div>
+          <p class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]">Add Connection</p>
+          <p class="text-xs text-[var(--chrome-ink-dim)]">Create a new encrypted connection profile.</p>
+        </button>
 
-          <label class="chrome-label">
-            <span>Dialect</span>
-            <select v-model="form.dialect" :disabled="form.kind === 'web-provider'" class="chrome-input mt-1">
-              <option value="postgres">Postgres</option>
-              <option value="mysql">MySQL</option>
-            </select>
-          </label>
-        </div>
+        <article
+          v-for="profile in store.profiles"
+          :key="profile.id"
+          class="flex min-h-[168px] flex-col border border-[var(--chrome-border)] bg-[#0f141d] p-4"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              class="flex min-w-0 items-start gap-2 text-left"
+              :disabled="isSubmitting || isTesting"
+              @click="store.setActiveConnection(profile.id)"
+            >
+              <component
+                :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
+                :size="15"
+                :class="profile.target.kind === 'desktop-tcp' ? 'text-[var(--chrome-red)]' : 'text-[var(--chrome-yellow)]'"
+              />
 
-        <template v-if="form.kind === 'desktop-tcp'">
-          <label class="chrome-label">
-            <span>Host</span>
-            <input v-model="form.host" class="chrome-input mt-1" type="text" />
-          </label>
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold text-[var(--chrome-ink)]">{{ profile.name }}</p>
+                <p class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
+                  {{ connectionKindLabel(profile) }}
+                </p>
+              </div>
+            </button>
 
-          <div class="grid grid-cols-2 gap-3">
-            <label class="chrome-label">
-              <span>Port</span>
-              <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
-            </label>
-
-            <label class="chrome-label">
-              <span>Database</span>
-              <input v-model="form.database" class="chrome-input mt-1" type="text" />
-            </label>
+            <span v-if="store.activeConnectionId === profile.id" class="chrome-pill chrome-pill-ok">
+              <CheckCircle2 :size="12" />
+              Active
+            </span>
+            <span v-else class="chrome-pill">Saved</span>
           </div>
 
-          <label class="chrome-label">
-            <span>User</span>
-            <input v-model="form.user" class="chrome-input mt-1" type="text" />
-          </label>
+          <p class="mt-3 truncate text-xs text-[var(--chrome-ink-dim)]">{{ connectionTargetLabel(profile) }}</p>
+          <p class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
+            {{ profile.target.dialect }}
+          </p>
 
-          <label class="chrome-label">
-            <span>Password (optional)</span>
-            <input v-model="form.password" class="chrome-input mt-1" type="password" />
-          </label>
-        </template>
+          <div class="mt-4 flex flex-wrap gap-2 border-t border-[var(--chrome-border)] pt-3">
+            <button
+              type="button"
+              class="chrome-btn"
+              :disabled="isSubmitting || isTesting || store.activeConnectionId === profile.id"
+              @click="store.setActiveConnection(profile.id)"
+            >
+              {{ store.activeConnectionId === profile.id ? "Active" : "Use" }}
+            </button>
 
-        <template v-else>
-          <label class="chrome-label">
-            <span>Provider</span>
-            <select v-model="form.provider" class="chrome-input mt-1">
-              <option value="neon">Neon Serverless (Postgres via wsproxy)</option>
-              <option value="planetscale">PlanetScale (MySQL HTTP)</option>
-            </select>
-          </label>
+            <button
+              type="button"
+              class="chrome-btn inline-flex items-center gap-1"
+              :disabled="isSubmitting || isTesting"
+              @click="openEditConnectionModal(profile.id)"
+            >
+              <Pencil :size="13" />
+              Edit
+            </button>
 
-          <template v-if="form.provider === 'planetscale'">
+            <button
+              type="button"
+              class="chrome-btn chrome-btn-danger inline-flex items-center gap-1"
+              :disabled="isSubmitting || isTesting"
+              @click="removeConnection(profile.id)"
+            >
+              <Trash2 :size="13" />
+              Delete
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="store.profiles.length === 0" class="chrome-empty mt-3 p-4 text-xs">No saved connections yet.</div>
+    </section>
+
+    <div
+      v-if="isModalOpen"
+      class="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(7,9,13,0.84)] p-4 backdrop-blur-sm"
+      @click="closeConnectionModal"
+    >
+      <section class="panel relative z-[1] w-full max-w-3xl overflow-hidden" @click.stop>
+        <div class="chrome-panel-header flex items-start justify-between gap-3 px-4 py-3">
+          <div>
+            <h3 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">{{ modalTitle }}</h3>
+            <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">Configure credentials and test before saving.</p>
+          </div>
+
+          <button
+            type="button"
+            class="chrome-btn !p-1.5"
+            :disabled="isSubmitting || isTesting"
+            @click="closeConnectionModal"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <div class="qwerio-scroll max-h-[80vh] overflow-auto">
+          <form class="flex flex-col gap-3 p-4" @submit.prevent="submitConnection">
+            <p v-if="isEditing" class="text-xs text-[var(--chrome-yellow)]">
+              Editing profile. Test and save to apply updates.
+            </p>
+
             <label class="chrome-label">
-              <span>PlanetScale Host</span>
-              <input
-                v-model="form.endpoint"
-                class="chrome-input mt-1"
-                type="text"
-                placeholder="aws.connect.psdb.cloud"
-              />
+              <span>Name</span>
+              <input v-model="form.name" class="chrome-input mt-1" type="text" />
             </label>
 
             <div class="grid grid-cols-2 gap-3">
               <label class="chrome-label">
-                <span>Username</span>
-                <input v-model="form.providerUsername" class="chrome-input mt-1" type="text" />
+                <span>Mode</span>
+                <select v-model="form.kind" class="chrome-input mt-1">
+                  <option value="desktop-tcp" :disabled="isWebRuntime">Desktop TCP</option>
+                  <option value="web-provider">Web Provider</option>
+                </select>
               </label>
 
               <label class="chrome-label">
-                <span>Password</span>
-                <input v-model="form.providerPassword" class="chrome-input mt-1" type="password" />
+                <span>Dialect</span>
+                <select v-model="form.dialect" :disabled="form.kind === 'web-provider'" class="chrome-input mt-1">
+                  <option value="postgres">Postgres</option>
+                  <option value="mysql">MySQL</option>
+                </select>
               </label>
             </div>
-          </template>
 
-          <template v-else>
-            <label class="chrome-label">
-              <span>WebSocket Proxy Endpoint (optional)</span>
-              <input
-                v-model="form.endpoint"
-                class="chrome-input mt-1"
-                type="text"
-                placeholder="localhost:6543/v1"
-              />
-            </label>
-
-            <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
-              For local Postgres in browser mode, run wsproxy and set it here (for example `localhost:6543/v1`).
-            </p>
-
-            <label class="chrome-label">
-              <span>Postgres Input Mode</span>
-              <select v-model="form.neonInputMode" class="chrome-input mt-1">
-                <option value="connection-details">Separate Fields</option>
-                <option value="connection-string">Connection String</option>
-              </select>
-            </label>
-
-            <template v-if="form.neonInputMode === 'connection-details'">
+            <template v-if="form.kind === 'desktop-tcp'">
               <label class="chrome-label">
                 <span>Host</span>
-                <input v-model="form.host" class="chrome-input mt-1" type="text" placeholder="localhost" />
+                <input v-model="form.host" class="chrome-input mt-1" type="text" />
               </label>
 
               <div class="grid grid-cols-2 gap-3">
@@ -741,101 +734,132 @@ onMounted(() => {
 
             <template v-else>
               <label class="chrome-label">
-                <span>Neon Connection String</span>
-                <input
-                  v-model="form.connectionString"
-                  class="chrome-input mt-1"
-                  type="password"
-                  placeholder="postgresql://user:password@ep-...neon.tech/database"
-                />
+                <span>Provider</span>
+                <select v-model="form.provider" class="chrome-input mt-1">
+                  <option value="neon">Neon Serverless (Postgres via wsproxy)</option>
+                  <option value="planetscale">PlanetScale (MySQL HTTP)</option>
+                </select>
               </label>
+
+              <template v-if="form.provider === 'planetscale'">
+                <label class="chrome-label">
+                  <span>PlanetScale Host</span>
+                  <input
+                    v-model="form.endpoint"
+                    class="chrome-input mt-1"
+                    type="text"
+                    placeholder="aws.connect.psdb.cloud"
+                  />
+                </label>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="chrome-label">
+                    <span>Username</span>
+                    <input v-model="form.providerUsername" class="chrome-input mt-1" type="text" />
+                  </label>
+
+                  <label class="chrome-label">
+                    <span>Password</span>
+                    <input v-model="form.providerPassword" class="chrome-input mt-1" type="password" />
+                  </label>
+                </div>
+              </template>
+
+              <template v-else>
+                <label class="chrome-label">
+                  <span>WebSocket Proxy Endpoint (optional)</span>
+                  <input
+                    v-model="form.endpoint"
+                    class="chrome-input mt-1"
+                    type="text"
+                    placeholder="localhost:6543/v1"
+                  />
+                </label>
+
+                <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
+                  For local Postgres in browser mode, run wsproxy and set it here (for example `localhost:6543/v1`).
+                </p>
+
+                <label class="chrome-label">
+                  <span>Postgres Input Mode</span>
+                  <select v-model="form.neonInputMode" class="chrome-input mt-1">
+                    <option value="connection-details">Separate Fields</option>
+                    <option value="connection-string">Connection String</option>
+                  </select>
+                </label>
+
+                <template v-if="form.neonInputMode === 'connection-details'">
+                  <label class="chrome-label">
+                    <span>Host</span>
+                    <input v-model="form.host" class="chrome-input mt-1" type="text" placeholder="localhost" />
+                  </label>
+
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="chrome-label">
+                      <span>Port</span>
+                      <input v-model.number="form.port" class="chrome-input mt-1" type="number" />
+                    </label>
+
+                    <label class="chrome-label">
+                      <span>Database</span>
+                      <input v-model="form.database" class="chrome-input mt-1" type="text" />
+                    </label>
+                  </div>
+
+                  <label class="chrome-label">
+                    <span>User</span>
+                    <input v-model="form.user" class="chrome-input mt-1" type="text" />
+                  </label>
+
+                  <label class="chrome-label">
+                    <span>Password (optional)</span>
+                    <input v-model="form.password" class="chrome-input mt-1" type="password" />
+                  </label>
+                </template>
+
+                <template v-else>
+                  <label class="chrome-label">
+                    <span>Neon Connection String</span>
+                    <input
+                      v-model="form.connectionString"
+                      class="chrome-input mt-1"
+                      type="password"
+                      placeholder="postgresql://user:password@ep-...neon.tech/database"
+                    />
+                  </label>
+                </template>
+              </template>
             </template>
-          </template>
-        </template>
 
-        <div class="mt-1 flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="chrome-btn inline-flex items-center gap-1"
-            :disabled="isSubmitting || isTesting"
-            @click="testConnection"
-          >
-            <FlaskConical :size="12" />
-            {{ isTesting ? "Testing..." : "Test Connection" }}
-          </button>
+            <div class="mt-1 flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="chrome-btn inline-flex items-center gap-1"
+                :disabled="isSubmitting || isTesting"
+                @click="testConnection"
+              >
+                <FlaskConical :size="12" />
+                {{ isTesting ? "Testing..." : "Test Connection" }}
+              </button>
 
-          <button type="submit" :disabled="isSubmitting || isTesting" class="chrome-btn chrome-btn-primary">
-            {{ isSubmitting ? (isEditing ? "Updating..." : "Saving...") : (isEditing ? "Update Connection" : "Save Connection") }}
-          </button>
+              <button type="submit" :disabled="isSubmitting || isTesting" class="chrome-btn chrome-btn-primary">
+                {{ isSubmitting ? (isEditing ? "Updating..." : "Saving...") : (isEditing ? "Update Connection" : "Save Connection") }}
+              </button>
 
-          <button
-            v-if="isEditing"
-            type="button"
-            class="chrome-btn"
-            :disabled="isSubmitting || isTesting"
-            @click="cancelEditing"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-
-      <p v-if="feedback" class="mt-3 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
-    </section>
-
-    <section class="panel-tight qwerio-scroll min-h-0 overflow-auto p-3">
-      <h2 class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]">Saved Profiles</h2>
-
-      <div v-if="store.profiles.length === 0" class="chrome-empty mt-3 p-4 text-xs">No saved connections yet.</div>
-
-      <ul v-else class="mt-3 m-0 list-none space-y-2 p-0">
-        <li
-          v-for="profile in store.profiles"
-          :key="profile.id"
-          class="flex items-center justify-between border border-[var(--chrome-border)] bg-[#0f141d] px-2.5 py-2"
-        >
-          <button type="button" class="flex min-w-0 items-center gap-2 text-left" @click="store.setActiveConnection(profile.id)">
-            <component
-              :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
-              :size="15"
-              :class="profile.target.kind === 'desktop-tcp' ? 'text-[var(--chrome-red)]' : 'text-[var(--chrome-yellow)]'"
-            />
-
-            <div class="min-w-0">
-              <p class="truncate text-sm font-semibold text-[var(--chrome-ink)]">{{ profile.name }}</p>
-              <p class="truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">
-                {{ profile.target.kind === "desktop-tcp" ? profile.target.host : profile.target.provider }}
-              </p>
+              <button
+                type="button"
+                class="chrome-btn"
+                :disabled="isSubmitting || isTesting"
+                @click="closeConnectionModal"
+              >
+                Cancel
+              </button>
             </div>
-          </button>
 
-          <div class="flex items-center gap-2">
-            <component
-              :is="store.activeConnectionId === profile.id ? CheckCircle2 : Circle"
-              :size="16"
-              :class="store.activeConnectionId === profile.id ? 'text-[var(--chrome-green)]' : 'text-[var(--chrome-ink-muted)]'"
-            />
-
-            <button
-              type="button"
-              class="chrome-btn !p-1.5"
-              :disabled="isSubmitting || isTesting"
-              @click="startEditConnection(profile.id)"
-            >
-              <Pencil :size="13" />
-            </button>
-
-            <button
-              type="button"
-              class="chrome-btn chrome-btn-danger !p-1.5"
-              :disabled="isSubmitting || isTesting"
-              @click="removeConnection(profile.id)"
-            >
-              <Trash2 :size="13" />
-            </button>
-          </div>
-        </li>
-      </ul>
-    </section>
+            <p v-if="feedback" class="mt-1 text-xs text-[var(--chrome-yellow)]">{{ feedback }}</p>
+          </form>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
