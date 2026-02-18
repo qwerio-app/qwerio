@@ -37,8 +37,3 @@ pnpm tauri dev
 ```bash
 pnpm build
 ```
-
-## Notes
-
-- Browser mode is scaffolded for provider-based HTTP endpoints only.
-- Desktop mode currently returns mock results through Tauri command stubs until native DB drivers are integrated.

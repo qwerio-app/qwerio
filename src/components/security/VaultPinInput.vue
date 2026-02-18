@@ -22,7 +22,9 @@ const emit = defineEmits<{
 }>();
 
 const digitValues = ref<string[]>(Array(PIN_LENGTH).fill(""));
-const inputRefs = ref<Array<HTMLInputElement | null>>(Array(PIN_LENGTH).fill(null));
+const inputRefs = ref<Array<HTMLInputElement | null>>(
+  Array(PIN_LENGTH).fill(null),
+);
 
 function sanitizeToPin(value: string): string {
   return value.replace(/\D/g, "").slice(0, PIN_LENGTH);
@@ -219,7 +221,7 @@ watch(
       pattern="[0-9]*"
       maxlength="1"
       autocomplete="one-time-code"
-      class="h-11 w-10 rounded-[4px] border border-[var(--chrome-border)] bg-[rgba(9,11,16,0.92)] text-center text-base font-semibold text-[var(--chrome-ink)] outline-none transition focus:border-[var(--chrome-red)] sm:h-12 sm:w-11 sm:text-lg"
+      class="h-11 w-11 rounded-[4px] border border-[var(--chrome-border)] bg-[rgba(9,11,16,0.92)] text-center text-base font-semibold text-[var(--chrome-ink)] outline-none transition focus:border-[var(--chrome-red)] sm:h-12 sm:w-12 sm:text-lg"
       :disabled="disabled"
       :aria-label="`PIN digit ${index + 1}`"
       @keydown="handleKeydown($event, index)"
