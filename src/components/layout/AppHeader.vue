@@ -8,7 +8,7 @@ import { useAppSettingsStore } from "../../stores/app-settings";
 import { useAppTabsStore, type AppTab } from "../../stores/app-tabs";
 import { useConnectionsStore } from "../../stores/connections";
 import { useWorkbenchStore } from "../../stores/workbench";
-import SettingsView from "../../views/SettingsView.vue";
+import AppStatusView from "../../views/AppStatusView.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -288,7 +288,7 @@ async function closeTab(tab: AppTab): Promise<void> {
           class="panel absolute right-0 top-[calc(100%+0.4rem)] z-30 w-[min(94vw,680px)] p-2"
           role="menu"
         >
-          <SettingsView />
+          <AppStatusView />
         </div>
       </div>
 
