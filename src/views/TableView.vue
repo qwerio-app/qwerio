@@ -6,6 +6,7 @@ import ResultsGrid from "../components/workbench/ResultsGrid.vue";
 import { getQueryEngine } from "../core/query-engine-service";
 import type { ConnectionProfile, QueryResult } from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
+import { useVaultStore } from "../stores/vault";
 import { useWorkbenchStore } from "../stores/workbench";
 
 const DEFAULT_LIMIT = 100;
@@ -13,6 +14,7 @@ const MAX_LIMIT = 1000;
 
 const route = useRoute();
 const connectionsStore = useConnectionsStore();
+const vaultStore = useVaultStore();
 const workbenchStore = useWorkbenchStore();
 
 const isLoading = ref(false);
@@ -159,6 +161,15 @@ watch(
     void loadTableRows();
   },
   { immediate: true },
+);
+
+watch(
+  () => vaultStore.needsUnlockPrompt,
+  (needsUnlockPrompt, previousNeedsUnlockPrompt) => {
+    if (previousNeedsUnlockPrompt && !needsUnlockPrompt) {
+      void loadTableRows();
+    }
+  },
 );
 </script>
 

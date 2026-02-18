@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useVaultStore } from "../../stores/vault";
 import { useRoute, useRouter } from "vue-router";
 import {
   Braces,
@@ -17,6 +18,7 @@ import { useWorkbenchStore } from "../../stores/workbench";
 const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
+const vaultStore = useVaultStore();
 const connectionsStore = useConnectionsStore();
 const workbenchStore = useWorkbenchStore();
 
@@ -146,6 +148,15 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  () => vaultStore.needsUnlockPrompt,
+  async (needsUnlockPrompt, previousNeedsUnlockPrompt) => {
+    if (previousNeedsUnlockPrompt && !needsUnlockPrompt) {
+      await refreshSchema();
+    }
+  },
+);
 </script>
 
 <template>
@@ -194,7 +205,7 @@ watch(
           :class="
             uiStore.sidebarCollapsed
               ? 'flex flex-col items-center gap-2'
-              : 'flex items-start justify-between gap-2 border-b border-[var(--chrome-border)] px-2 py-2'
+              : 'flex items-center justify-between gap-2 border-b border-[var(--chrome-border)] px-2 py-2'
           "
         >
           <div
@@ -205,17 +216,12 @@ watch(
             "
           >
             <Database
-              :size="uiStore.sidebarCollapsed ? 13 : 14"
+              :size="uiStore.sidebarCollapsed ? 13 : 16"
               class="text-[var(--chrome-cyan)]"
             />
           </div>
 
           <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 flex-1">
-            <p
-              class="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--chrome-ink-muted)]"
-            >
-              active connection
-            </p>
             <p
               class="truncate text-xs font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
             >
