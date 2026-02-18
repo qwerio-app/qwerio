@@ -36,10 +36,6 @@ function toQueryRoutePath(queryTabId: string): string {
   return `/query/${queryTabId}`;
 }
 
-function toConnectionRoutePath(connectionId: string | null): string {
-  return connectionId ? `/connections/${connectionId}` : "/connections";
-}
-
 function toTableRoutePath(tableTabId: string): string {
   return `/tables/${tableTabId}`;
 }
@@ -57,10 +53,8 @@ watch(
     route.name,
     route.path,
     route.params.queryTabId,
-    route.params.connectionId,
     route.params.tableTabId,
     workbenchStore.activeTabId,
-    connectionsStore.activeConnectionId,
   ] as const,
   () => {
     if (route.name === "query") {
@@ -86,16 +80,10 @@ watch(
     }
 
     if (route.name === "connections") {
-      const routeConnectionId =
-        typeof route.params.connectionId === "string" ? route.params.connectionId : null;
-      const connectionProfile =
-        connectionsStore.profiles.find((profile) => profile.id === routeConnectionId) ?? null;
-      const connectionId = connectionProfile?.id ?? connectionsStore.activeConnectionId ?? null;
-
       appTabsStore.openPageTab({
         pageKey: "connections",
-        title: connectionProfile ? `Connection: ${connectionProfile.name}` : "Connections",
-        routePath: toConnectionRoutePath(connectionId),
+        title: "Connections",
+        routePath: "/connections",
         activate: true,
       });
       return;

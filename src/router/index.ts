@@ -18,7 +18,7 @@ const router = createRouter({
           component: () => import("../views/QueryView.vue"),
         },
         {
-          path: "connections/:connectionId?",
+          path: "connections",
           name: "connections",
           component: () => import("../views/ConnectionsView.vue"),
         },

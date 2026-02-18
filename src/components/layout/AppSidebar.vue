@@ -3,14 +3,12 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Cable, SlidersHorizontal } from "lucide-vue-next";
 import { useAppTabsStore } from "../../stores/app-tabs";
-import { useConnectionsStore } from "../../stores/connections";
 import { useUiStore } from "../../stores/ui";
 
 const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
 const appTabsStore = useAppTabsStore();
-const connectionsStore = useConnectionsStore();
 
 const primaryLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
@@ -32,19 +30,15 @@ const navItemClass = computed(() =>
 );
 
 async function openConnectionsTab(): Promise<void> {
-  const routePath = connectionsStore.activeConnectionId
-    ? `/connections/${connectionsStore.activeConnectionId}`
-    : "/connections";
-
   appTabsStore.openPageTab({
     pageKey: "connections",
     title: "Connections",
-    routePath,
+    routePath: "/connections",
     activate: true,
   });
 
-  if (route.path !== routePath) {
-    await router.push(routePath);
+  if (route.path !== "/connections") {
+    await router.push("/connections");
   }
 }
 

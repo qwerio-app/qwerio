@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref } from "vue";
 import {
   CheckCircle2,
   FlaskConical,
@@ -10,7 +10,6 @@ import {
   Trash2,
   X,
 } from "lucide-vue-next";
-import { useRoute, useRouter } from "vue-router";
 import {
   deleteConnectionSecret,
   loadConnectionSecret,
@@ -23,8 +22,6 @@ import { useVaultStore } from "../stores/vault";
 
 const TEST_CONNECTION_ID = "qwerio-connection-test";
 
-const route = useRoute();
-const router = useRouter();
 const store = useConnectionsStore();
 
 const feedback = ref("");
@@ -57,60 +54,6 @@ const form = reactive({
   providerUsername: "",
   providerPassword: "",
 });
-
-function toConnectionRoutePath(connectionId: string | null): string {
-  return connectionId ? `/connections/${connectionId}` : "/connections";
-}
-
-function setActiveConnection(connectionId: string): void {
-  store.setActiveConnection(connectionId);
-
-  if (route.name === "connections") {
-    const nextPath = toConnectionRoutePath(connectionId);
-
-    if (route.path !== nextPath) {
-      void router.replace(nextPath);
-    }
-  }
-}
-
-watch(
-  () => [
-    route.name,
-    route.params.connectionId,
-    store.activeConnectionId,
-    store.profiles.map((profile) => profile.id).join("|"),
-  ] as const,
-  () => {
-    if (route.name !== "connections") {
-      return;
-    }
-
-    const routeConnectionId =
-      typeof route.params.connectionId === "string" ? route.params.connectionId : null;
-    const hasRouteConnection =
-      routeConnectionId !== null &&
-      store.profiles.some((profile) => profile.id === routeConnectionId);
-
-    if (hasRouteConnection && routeConnectionId && store.activeConnectionId !== routeConnectionId) {
-      store.setActiveConnection(routeConnectionId);
-      return;
-    }
-
-    const fallbackConnectionId = store.activeConnectionId ?? store.profiles[0]?.id ?? null;
-
-    if (fallbackConnectionId && store.activeConnectionId !== fallbackConnectionId) {
-      store.setActiveConnection(fallbackConnectionId);
-    }
-
-    const fallbackPath = toConnectionRoutePath(fallbackConnectionId);
-
-    if (route.path !== fallbackPath) {
-      void router.replace(fallbackPath);
-    }
-  },
-  { immediate: true },
-);
 
 function refreshVaultStatus(): void {
   vaultStore.refreshStatus();
@@ -550,7 +493,7 @@ async function submitConnection(): Promise<void> {
         return;
       }
 
-      setActiveConnection(editingId);
+      store.setActiveConnection(editingId);
       feedback.value = "Connection updated with encrypted credentials.";
       isModalOpen.value = false;
       resetForm();
@@ -576,7 +519,7 @@ async function submitConnection(): Promise<void> {
       return;
     }
 
-    setActiveConnection(result.profile.id);
+    store.setActiveConnection(result.profile.id);
     feedback.value = "Connection saved with encrypted credentials.";
     isModalOpen.value = false;
     resetForm();
@@ -645,7 +588,7 @@ async function removeConnection(id: string): Promise<void> {
               type="button"
               class="flex min-w-0 items-start gap-2 text-left"
               :disabled="isSubmitting || isTesting"
-              @click="setActiveConnection(profile.id)"
+              @click="store.setActiveConnection(profile.id)"
             >
               <component
                 :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
@@ -678,7 +621,7 @@ async function removeConnection(id: string): Promise<void> {
               type="button"
               class="chrome-btn"
               :disabled="isSubmitting || isTesting || store.activeConnectionId === profile.id"
-              @click="setActiveConnection(profile.id)"
+              @click="store.setActiveConnection(profile.id)"
             >
               {{ store.activeConnectionId === profile.id ? "Active" : "Use" }}
             </button>
