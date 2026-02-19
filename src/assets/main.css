@@ -108,6 +108,27 @@ h3,
   transition: border-color 0.18s ease;
 }
 
+select.chrome-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  color-scheme: dark;
+  padding-right: 2rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--chrome-ink-dim) 50%),
+    linear-gradient(135deg, var(--chrome-ink-dim) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% + 1px),
+    calc(100% - 9px) calc(50% + 1px);
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+select.chrome-input option {
+  background-color: #0d1016;
+  color: var(--chrome-ink);
+}
+
 .chrome-input-sm {
   padding: 0.4rem 0.62rem;
   font-size: 0.8rem;
