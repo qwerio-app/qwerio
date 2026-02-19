@@ -8,8 +8,6 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
     "tauri": "tauri"
   },
   "dependencies": {
