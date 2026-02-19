@@ -47,6 +47,7 @@ export type ConnectionProfile = {
   id: string;
   name: string;
   target: ConnectionTarget;
+  showInternalSchemas?: boolean;
   createdAt: string;
   updatedAt: string;
 };

@@ -1,4 +1,5 @@
 import type { QueryEngine } from "../../core/query-engine";
+import type { SchemaObjectMap } from "../../core/query-engine";
 import { loadConnectionSecret } from "../../core/secret-vault";
 import type { ConnectionProfile, ConnectionSecret, QueryRequest, QueryResult } from "../../core/types";
 import { NeonServerlessAdapter } from "./providers/neon-adapter";
@@ -57,6 +58,16 @@ export class BrowserQueryEngine implements QueryEngine {
     }
 
     return adapter.listTables(schema);
+  }
+
+  async listSchemaObjects(connectionId: string, schema: string): Promise<SchemaObjectMap> {
+    const adapter = this.adapters.get(connectionId);
+
+    if (!adapter) {
+      throw new Error("Connection is not initialized. Connect first.");
+    }
+
+    return adapter.listSchemaObjects(schema);
   }
 
   private createAdapter(connection: ConnectionProfile, secret: ConnectionSecret): ProviderAdapter {

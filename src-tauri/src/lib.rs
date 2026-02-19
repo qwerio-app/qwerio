@@ -75,8 +75,52 @@ struct Schema {
 }
 
 #[derive(Debug, Serialize)]
-struct TableName {
+struct DbObjectName {
     name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SchemaObjectMap {
+    tables: Vec<DbObjectName>,
+    views: Vec<DbObjectName>,
+    functions: Vec<DbObjectName>,
+    triggers: Vec<DbObjectName>,
+    indexes: Vec<DbObjectName>,
+    procedures: Vec<DbObjectName>,
+    sequences: Vec<DbObjectName>,
+}
+
+impl SchemaObjectMap {
+    fn empty() -> Self {
+        Self {
+            tables: Vec::new(),
+            views: Vec::new(),
+            functions: Vec::new(),
+            triggers: Vec::new(),
+            indexes: Vec::new(),
+            procedures: Vec::new(),
+            sequences: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, object_type: &str, name: String) {
+        if name.trim().is_empty() {
+            return;
+        }
+
+        let object = DbObjectName { name };
+
+        match object_type {
+            "tables" => self.tables.push(object),
+            "views" => self.views.push(object),
+            "functions" => self.functions.push(object),
+            "triggers" => self.triggers.push(object),
+            "indexes" => self.indexes.push(object),
+            "procedures" => self.procedures.push(object),
+            "sequences" => self.sequences.push(object),
+            _ => {}
+        }
+    }
 }
 
 #[tauri::command]
@@ -212,7 +256,7 @@ async fn db_list_tables(
     connection_id: &str,
     schema: &str,
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<TableName>, String> {
+) -> Result<Vec<DbObjectName>, String> {
     let connection = {
         let guard = state.connections.read().await;
         guard
@@ -225,7 +269,7 @@ async fn db_list_tables(
         DbConnection::Postgres(client) => {
             let statement = client
                 .prepare(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name",
                 )
                 .await
                 .map_err(|error| format!("Postgres table listing prepare failed: {error}"))?;
@@ -238,7 +282,7 @@ async fn db_list_tables(
             Ok(rows
                 .into_iter()
                 .filter_map(|row| row.try_get::<usize, String>(0).ok())
-                .map(|name| TableName { name })
+                .map(|name| DbObjectName { name })
                 .collect())
         }
         DbConnection::MySql(pool) => {
@@ -249,7 +293,7 @@ async fn db_list_tables(
 
             let rows: Vec<(String,)> = conn
                 .exec(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name",
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name",
                     (schema,),
                 )
                 .await
@@ -257,8 +301,127 @@ async fn db_list_tables(
 
             Ok(rows
                 .into_iter()
-                .map(|(name,)| TableName { name })
+                .map(|(name,)| DbObjectName { name })
                 .collect())
+        }
+    }
+}
+
+#[tauri::command]
+async fn db_list_schema_objects(
+    connection_id: &str,
+    schema: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<SchemaObjectMap, String> {
+    let connection = {
+        let guard = state.connections.read().await;
+        guard
+            .get(connection_id)
+            .cloned()
+            .ok_or_else(|| "Connection is not established. Reconnect and retry.".to_string())?
+    };
+
+    match connection {
+        DbConnection::Postgres(client) => {
+            let statement = client
+                .prepare(
+                    "SELECT object_type, name FROM (
+                        SELECT 'tables'::text AS object_type, table_name::text AS name
+                        FROM information_schema.tables
+                        WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+                        UNION ALL
+                        SELECT 'views'::text AS object_type, table_name::text AS name
+                        FROM information_schema.views
+                        WHERE table_schema = $1
+                        UNION ALL
+                        SELECT DISTINCT 'functions'::text AS object_type, routine_name::text AS name
+                        FROM information_schema.routines
+                        WHERE specific_schema = $1 AND routine_type = 'FUNCTION'
+                        UNION ALL
+                        SELECT DISTINCT 'procedures'::text AS object_type, routine_name::text AS name
+                        FROM information_schema.routines
+                        WHERE specific_schema = $1 AND routine_type = 'PROCEDURE'
+                        UNION ALL
+                        SELECT DISTINCT 'triggers'::text AS object_type, trigger_name::text AS name
+                        FROM information_schema.triggers
+                        WHERE trigger_schema = $1
+                        UNION ALL
+                        SELECT 'indexes'::text AS object_type, indexname::text AS name
+                        FROM pg_indexes
+                        WHERE schemaname = $1
+                        UNION ALL
+                        SELECT 'sequences'::text AS object_type, sequence_name::text AS name
+                        FROM information_schema.sequences
+                        WHERE sequence_schema = $1
+                    ) objects
+                    WHERE name IS NOT NULL
+                    ORDER BY object_type, name",
+                )
+                .await
+                .map_err(|error| format!("Postgres schema object listing prepare failed: {error}"))?;
+
+            let rows = client
+                .query(&statement, &[&schema])
+                .await
+                .map_err(|error| format!("Postgres schema object listing failed: {error}"))?;
+
+            let mut result = SchemaObjectMap::empty();
+
+            for row in rows {
+                let object_type = row.try_get::<usize, String>(0).unwrap_or_default();
+                let name = row.try_get::<usize, String>(1).unwrap_or_default();
+                result.push(&object_type, name);
+            }
+
+            Ok(result)
+        }
+        DbConnection::MySql(pool) => {
+            let mut conn = pool
+                .get_conn()
+                .await
+                .map_err(|error| format!("MySQL connection failed: {error}"))?;
+
+            let rows: Vec<(String, String)> = conn
+                .exec(
+                    "SELECT object_type, name FROM (
+                        SELECT 'tables' AS object_type, table_name AS name
+                        FROM information_schema.tables
+                        WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                        UNION ALL
+                        SELECT 'views' AS object_type, table_name AS name
+                        FROM information_schema.views
+                        WHERE table_schema = ?
+                        UNION ALL
+                        SELECT DISTINCT 'functions' AS object_type, routine_name AS name
+                        FROM information_schema.routines
+                        WHERE routine_schema = ? AND routine_type = 'FUNCTION'
+                        UNION ALL
+                        SELECT DISTINCT 'procedures' AS object_type, routine_name AS name
+                        FROM information_schema.routines
+                        WHERE routine_schema = ? AND routine_type = 'PROCEDURE'
+                        UNION ALL
+                        SELECT DISTINCT 'triggers' AS object_type, trigger_name AS name
+                        FROM information_schema.triggers
+                        WHERE trigger_schema = ?
+                        UNION ALL
+                        SELECT 'indexes' AS object_type, CONCAT(table_name, '.', index_name) AS name
+                        FROM information_schema.statistics
+                        WHERE table_schema = ? AND index_name <> 'PRIMARY'
+                        GROUP BY table_name, index_name
+                    ) objects
+                    ORDER BY object_type, name",
+                    (schema, schema, schema, schema, schema, schema),
+                )
+                .await
+                .map_err(|error| format!("MySQL schema object listing failed: {error}"))?;
+
+            let mut result = SchemaObjectMap::empty();
+
+            for (object_type, name) in rows {
+                result.push(&object_type, name);
+            }
+
+            Ok(result)
         }
     }
 }
@@ -813,6 +976,7 @@ pub fn run() {
             db_cancel,
             db_list_schemas,
             db_list_tables,
+            db_list_schema_objects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

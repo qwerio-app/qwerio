@@ -11,12 +11,14 @@ import {
   SlidersHorizontal,
   Table2,
 } from "lucide-vue-next";
+import { useAppSettingsStore } from "../../stores/app-settings";
 import { useConnectionsStore } from "../../stores/connections";
 import { useUiStore } from "../../stores/ui";
 import { useWorkbenchStore } from "../../stores/workbench";
 
 const route = useRoute();
 const router = useRouter();
+const appSettingsStore = useAppSettingsStore();
 const uiStore = useUiStore();
 const vaultStore = useVaultStore();
 const connectionsStore = useConnectionsStore();
@@ -27,8 +29,10 @@ const footerLinks = [
   { to: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 const expandedSchemas = ref<Record<string, boolean>>({});
+const expandedSchemaGroups = ref<Record<string, Record<SidebarSchemaGroupKey, boolean>>>({});
 const isRefreshingSchema = ref(false);
 const schemaLoadError = ref("");
+const INTERNAL_SCHEMA_NAMES = new Set(["pg_catalog", "information_schema"]);
 
 const activeConnection = computed(() => connectionsStore.activeProfile);
 const activeConnectionName = computed(
@@ -48,12 +52,80 @@ const activeConnectionDescription = computed(() => {
 
   return `${activeConnection.value.target.dialect.toUpperCase()} · ${source}`;
 });
+const showInternalSchemasForConnection = computed(() =>
+  Boolean(activeConnection.value?.showInternalSchemas),
+);
 
-const schemaObjects = computed(() =>
-  workbenchStore.schemaNames.map((schema) => ({
-    name: schema.name,
-    tables: workbenchStore.tableMap[schema.name] ?? [],
-  })),
+const schemaGroupMeta = [
+  { key: "tables", label: "tables", advanced: false },
+  { key: "views", label: "views", advanced: false },
+  { key: "functions", label: "functions", advanced: true },
+  { key: "procedures", label: "procedures", advanced: true },
+  { key: "triggers", label: "triggers", advanced: true },
+  { key: "indexes", label: "indexes", advanced: true },
+  { key: "sequences", label: "sequences", advanced: true },
+] as const;
+
+type SidebarSchemaGroupKey = (typeof schemaGroupMeta)[number]["key"];
+
+type SidebarSchemaObject = {
+  name: string;
+  totalCount: number;
+  groups: Array<{
+    key: SidebarSchemaGroupKey;
+    label: string;
+    items: Array<{ name: string }>;
+  }>;
+};
+
+const visibleSchemaGroupMeta = computed(() =>
+  schemaGroupMeta.filter(
+    (groupMeta) => appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced,
+  ),
+);
+
+function isInternalSchemaName(schemaName: string): boolean {
+  return INTERNAL_SCHEMA_NAMES.has(schemaName.trim().toLowerCase());
+}
+
+const visibleSchemas = computed(() => {
+  if (showInternalSchemasForConnection.value) {
+    return workbenchStore.schemaNames;
+  }
+
+  return workbenchStore.schemaNames.filter(
+    (schema) => !isInternalSchemaName(schema.name),
+  );
+});
+
+const hasOnlyHiddenInternalSchemas = computed(
+  () =>
+    !showInternalSchemasForConnection.value &&
+    workbenchStore.schemaNames.length > 0 &&
+    visibleSchemas.value.length === 0,
+);
+
+const schemaObjects = computed<SidebarSchemaObject[]>(() =>
+  visibleSchemas.value.map((schema) => {
+    const schemaObjectGroup = workbenchStore.schemaObjectMap[schema.name];
+    const groups = visibleSchemaGroupMeta.value.map((groupMeta) => ({
+      key: groupMeta.key,
+      label: groupMeta.label,
+      items:
+        schemaObjectGroup?.[groupMeta.key] ??
+        (groupMeta.key === "tables" ? workbenchStore.tableMap[schema.name] ?? [] : []),
+    }));
+    const totalCount = groups.reduce(
+      (currentCount, group) => currentCount + group.items.length,
+      0,
+    );
+
+    return {
+      name: schema.name,
+      totalCount,
+      groups,
+    };
+  }),
 );
 
 const sidebarWidthClass = computed(() =>
@@ -85,6 +157,28 @@ function toggleSchema(schemaName: string): void {
   };
 }
 
+function isSchemaGroupExpanded(
+  schemaName: string,
+  groupKey: SidebarSchemaGroupKey,
+): boolean {
+  return expandedSchemaGroups.value[schemaName]?.[groupKey] ?? groupKey === "tables";
+}
+
+function toggleSchemaGroup(schemaName: string, groupKey: SidebarSchemaGroupKey): void {
+  const currentSchemaGroups = expandedSchemaGroups.value[schemaName] ?? {};
+  expandedSchemaGroups.value = {
+    ...expandedSchemaGroups.value,
+    [schemaName]: {
+      ...currentSchemaGroups,
+      [groupKey]: !isSchemaGroupExpanded(schemaName, groupKey),
+    },
+  };
+}
+
+function isOpenableRelationGroup(groupKey: SidebarSchemaGroupKey): boolean {
+  return groupKey === "tables" || groupKey === "views";
+}
+
 async function refreshSchema(): Promise<void> {
   if (isRefreshingSchema.value) {
     return;
@@ -103,7 +197,11 @@ async function refreshSchema(): Promise<void> {
   }
 }
 
-async function openTable(schemaName: string, tableName: string): Promise<void> {
+async function openRelation(
+  schemaName: string,
+  relationName: string,
+  objectType: "table" | "view",
+): Promise<void> {
   if (!activeConnection.value) {
     return;
   }
@@ -111,7 +209,8 @@ async function openTable(schemaName: string, tableName: string): Promise<void> {
   const tableTab = workbenchStore.openTableTab({
     connectionId: activeConnection.value.id,
     schemaName,
-    tableName,
+    tableName: relationName,
+    objectType,
   });
 
   await router.push(`/tables/${tableTab.id}`);
@@ -127,12 +226,27 @@ watch(
   () => workbenchStore.schemaNames.map((schema) => schema.name),
   (schemaNames) => {
     const nextExpanded: Record<string, boolean> = {};
+    const nextExpandedGroups: Record<string, Record<SidebarSchemaGroupKey, boolean>> = {};
 
     schemaNames.forEach((schemaName) => {
       nextExpanded[schemaName] = expandedSchemas.value[schemaName] ?? false;
+
+      const currentGroups = expandedSchemaGroups.value[schemaName] ?? {};
+      const nextGroups: Record<SidebarSchemaGroupKey, boolean> = {
+        tables: currentGroups.tables ?? true,
+        views: currentGroups.views ?? false,
+        functions: currentGroups.functions ?? false,
+        procedures: currentGroups.procedures ?? false,
+        triggers: currentGroups.triggers ?? false,
+        indexes: currentGroups.indexes ?? false,
+        sequences: currentGroups.sequences ?? false,
+      };
+
+      nextExpandedGroups[schemaName] = nextGroups;
     });
 
     expandedSchemas.value = nextExpanded;
+    expandedSchemaGroups.value = nextExpandedGroups;
   },
   { immediate: true },
 );
@@ -142,6 +256,7 @@ watch(
   async (connectionId, previousConnectionId) => {
     if (connectionId !== previousConnectionId) {
       expandedSchemas.value = {};
+      expandedSchemaGroups.value = {};
     }
 
     await refreshSchema();
@@ -268,7 +383,11 @@ watch(
             v-else-if="schemaObjects.length === 0"
             class="chrome-empty p-2 text-[11px]"
           >
-            No top-level objects found.
+            {{
+              hasOnlyHiddenInternalSchemas
+                ? "Only internal schemas are available. Enable 'Show internal schemas' in this connection settings to display them."
+                : "No schemas found for this connection."
+            }}
           </p>
 
           <div v-else class="flex flex-col gap-1">
@@ -295,39 +414,89 @@ watch(
                 <span
                   class="ml-auto text-[10px] text-[var(--chrome-ink-muted)]"
                 >
-                  {{ schema.tables.length }}
+                  {{ schema.totalCount }}
                 </span>
               </button>
 
               <ul
                 v-if="isSchemaExpanded(schema.name)"
-                class="m-0 list-none border-t border-[var(--chrome-border)] p-1"
+                class="m-0 list-none border-t border-[var(--chrome-border)] px-1.5 py-1"
               >
-                <li v-if="schema.tables.length === 0">
-                  <div
-                    class="flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-[var(--chrome-ink-muted)]"
-                  >
-                    <Table2 :size="11" class="text-[var(--chrome-yellow)]" />
-                    <span>No tables</span>
-                  </div>
-                </li>
-
                 <li
-                  v-for="table in schema.tables"
-                  :key="table.name"
+                  v-for="group in schema.groups"
+                  :key="`${schema.name}-${group.key}`"
                   class="mb-0.5 last:mb-0"
                 >
                   <button
                     type="button"
-                    class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
-                    @click="openTable(schema.name, table.name)"
+                    class="flex w-full items-center gap-1 px-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
+                    @click="toggleSchemaGroup(schema.name, group.key)"
                   >
-                    <Table2
+                    <ChevronRight
                       :size="11"
-                      class="shrink-0 text-[var(--chrome-yellow)]"
+                      :class="
+                        isSchemaGroupExpanded(schema.name, group.key)
+                          ? 'shrink-0 rotate-90 text-[var(--chrome-ink-dim)]'
+                          : 'shrink-0 text-[var(--chrome-ink-muted)]'
+                      "
                     />
-                    <span class="truncate">{{ table.name }}</span>
+                    <span>{{ group.label }}</span>
+                    <span class="ml-auto">{{ group.items.length }}</span>
                   </button>
+
+                  <ul
+                    v-if="isSchemaGroupExpanded(schema.name, group.key)"
+                    class="m-0 list-none pb-1 pl-4 pr-1"
+                  >
+                    <li v-if="group.items.length === 0">
+                      <div
+                        class="flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-[var(--chrome-ink-muted)]"
+                      >
+                        <Table2 :size="11" class="text-[var(--chrome-yellow)]" />
+                        <span>No {{ group.label }}</span>
+                      </div>
+                    </li>
+
+                    <li
+                      v-for="(item, itemIndex) in group.items"
+                      :key="`${group.key}-${item.name}-${itemIndex}`"
+                      class="mb-0.5 last:mb-0"
+                    >
+                      <button
+                        v-if="isOpenableRelationGroup(group.key)"
+                        type="button"
+                        class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                        @click="
+                          openRelation(
+                            schema.name,
+                            item.name,
+                            group.key === 'views' ? 'view' : 'table',
+                          )
+                        "
+                      >
+                        <Table2
+                          :size="11"
+                          :class="
+                            group.key === 'views'
+                              ? 'shrink-0 text-[var(--chrome-cyan)]'
+                              : 'shrink-0 text-[var(--chrome-yellow)]'
+                          "
+                        />
+                        <span class="truncate">{{ item.name }}</span>
+                      </button>
+
+                      <div
+                        v-else
+                        class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-muted)]"
+                      >
+                        <Table2
+                          :size="11"
+                          class="shrink-0 text-[var(--chrome-ink-muted)]"
+                        />
+                        <span class="truncate">{{ item.name }}</span>
+                      </div>
+                    </li>
+                  </ul>
                 </li>
               </ul>
             </section>

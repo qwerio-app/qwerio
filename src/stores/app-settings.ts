@@ -12,6 +12,10 @@ export const useAppSettingsStore = defineStore("app-settings", () => {
     "qwerio.settings.showConnectionStatusPill",
     true,
   );
+  const showAdvancedSchemaGroups = useStorage<boolean>(
+    "qwerio.settings.showAdvancedSchemaGroups",
+    false,
+  );
   const newQueryTemplateSql = useStorage<string>(
     "qwerio.settings.newQueryTemplateSql",
     DEFAULT_NEW_QUERY_SQL,
@@ -20,12 +24,14 @@ export const useAppSettingsStore = defineStore("app-settings", () => {
   function resetToDefaults(): void {
     showSystemStatusButton.value = true;
     showConnectionStatusPill.value = true;
+    showAdvancedSchemaGroups.value = false;
     newQueryTemplateSql.value = DEFAULT_NEW_QUERY_SQL;
   }
 
   return {
     showSystemStatusButton,
     showConnectionStatusPill,
+    showAdvancedSchemaGroups,
     newQueryTemplateSql,
     resetToDefaults,
   };

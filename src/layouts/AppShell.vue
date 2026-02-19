@@ -6,7 +6,7 @@ import VaultUnlockOverlay from "../components/security/VaultUnlockOverlay.vue";
 
 <template>
   <div
-    class="mx-auto flex h-screen w-full max-w-[1920px] flex-col gap-2 px-2 pb-2 pt-2 md:flex-row md:px-3"
+    class="mx-auto flex h-screen w-full flex-col gap-2 px-2 pb-2 pt-2 md:flex-row md:px-3"
   >
     <AppSidebar />
 

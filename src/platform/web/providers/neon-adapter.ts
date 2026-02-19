@@ -1,5 +1,6 @@
 import { Client } from "@neondatabase/serverless";
 import type { QueryRequest, QueryResult } from "../../../core/types";
+import { createEmptySchemaObjectMap, type SchemaObjectMap } from "../../../core/query-engine";
 import type { ProviderAdapter } from "./provider-adapter";
 
 type NeonResult = {
@@ -49,11 +50,55 @@ export class NeonServerlessAdapter implements ProviderAdapter {
 
   async listTables(schema: string): Promise<Array<{ name: string }>> {
     const result = await this.runQuery(
-      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
+      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name",
       [schema],
     );
 
     return result.rows as Array<{ name: string }>;
+  }
+
+  async listSchemaObjects(schema: string): Promise<SchemaObjectMap> {
+    const objects = createEmptySchemaObjectMap();
+    const [tables, views, functions, procedures, triggers, indexes, sequences] = await Promise.all([
+      this.listByName(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT table_name AS name FROM information_schema.views WHERE table_schema = $1 ORDER BY table_name",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT DISTINCT routine_name AS name FROM information_schema.routines WHERE specific_schema = $1 AND routine_type = 'FUNCTION' ORDER BY routine_name",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT DISTINCT routine_name AS name FROM information_schema.routines WHERE specific_schema = $1 AND routine_type = 'PROCEDURE' ORDER BY routine_name",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT DISTINCT trigger_name AS name FROM information_schema.triggers WHERE trigger_schema = $1 ORDER BY trigger_name",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT indexname AS name FROM pg_indexes WHERE schemaname = $1 ORDER BY indexname",
+        [schema],
+      ),
+      this.listByName(
+        "SELECT sequence_name AS name FROM information_schema.sequences WHERE sequence_schema = $1 ORDER BY sequence_name",
+        [schema],
+      ),
+    ]);
+
+    objects.tables = tables;
+    objects.views = views;
+    objects.functions = functions;
+    objects.procedures = procedures;
+    objects.triggers = triggers;
+    objects.indexes = indexes;
+    objects.sequences = sequences;
+
+    return objects;
   }
 
   private async runQuery(sql: string, params: Array<string | number | boolean | null>): Promise<NeonResult> {
@@ -63,6 +108,16 @@ export class NeonServerlessAdapter implements ProviderAdapter {
     } catch (error) {
       throw new Error(this.toFriendlyError(error));
     }
+  }
+
+  private async listByName(
+    sql: string,
+    params: Array<string | number | boolean | null>,
+  ): Promise<Array<{ name: string }>> {
+    const result = await this.runQuery(sql, params);
+    return (result.rows as Array<{ name?: unknown }>)
+      .map((row) => ({ name: String(row.name ?? "") }))
+      .filter((row) => row.name.length > 0);
   }
 
   private async ensureConnected(): Promise<void> {

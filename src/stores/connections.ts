@@ -33,6 +33,7 @@ const planetScaleTargetSchema = z.object({
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
   target: z.union([desktopTargetSchema, neonTargetSchema, planetScaleTargetSchema]),
+  showInternalSchemas: z.boolean().optional(),
 });
 
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
@@ -62,6 +63,7 @@ export const useConnectionsStore = defineStore("connections", () => {
       id: createNanoId(),
       name: parsed.data.name,
       target: parsed.data.target,
+      showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       createdAt: now,
       updatedAt: now,
     };
@@ -102,6 +104,7 @@ export const useConnectionsStore = defineStore("connections", () => {
       ...existingProfile,
       name: parsed.data.name,
       target: parsed.data.target,
+      showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       updatedAt: new Date().toISOString(),
     };
 

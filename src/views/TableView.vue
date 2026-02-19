@@ -53,11 +53,17 @@ const connectionProfile = computed<ConnectionProfile | null>(() => {
 
 const tableTitle = computed(() => {
   if (!tableTab.value) {
-    return "Unknown table";
+    return "Unknown object";
   }
 
   return tableTab.value.tableName;
 });
+
+const tableObjectType = computed(() => tableTab.value?.objectType ?? "table");
+const isReadOnlyView = computed(() => tableObjectType.value === "view");
+const objectLabel = computed(() =>
+  isReadOnlyView.value ? "view" : "table",
+);
 
 function quoteIdentifier(
   dialect: ConnectionProfile["target"]["dialect"],
@@ -108,7 +114,7 @@ async function loadTableRows(): Promise<void> {
   if (!tableTab.value) {
     result.value = null;
     errorMessage.value =
-      "Table tab not found. Reopen the table from the schema tree.";
+      "Object tab not found. Reopen it from the schema tree.";
     return;
   }
 
@@ -117,7 +123,7 @@ async function loadTableRows(): Promise<void> {
   if (!profile) {
     result.value = null;
     errorMessage.value =
-      "Connection profile was removed. Reopen the table from an active connection.";
+      "Connection profile was removed. Reopen this object from an active connection.";
     return;
   }
 
@@ -135,17 +141,25 @@ async function loadTableRows(): Promise<void> {
     errorMessage.value =
       error instanceof Error
         ? error.message
-        : "Unable to load rows for this table.";
+        : "Unable to load rows for this object.";
   } finally {
     isLoading.value = false;
   }
 }
 
 function applyFilters(): void {
+  if (isReadOnlyView.value) {
+    return;
+  }
+
   void loadTableRows();
 }
 
 function resetFilters(): void {
+  if (isReadOnlyView.value) {
+    return;
+  }
+
   filters.limit = DEFAULT_LIMIT;
   filters.whereClause = "";
   filters.orderBy = "";
@@ -185,6 +199,12 @@ watch(
           >
             {{ tableTitle }}
           </h2>
+          <p
+            class="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-muted)]"
+          >
+            {{ objectLabel }}
+            <span v-if="isReadOnlyView"> · read-only</span>
+          </p>
         </div>
 
         <div class="inline-flex items-center gap-2">
@@ -211,6 +231,7 @@ watch(
       </div>
 
       <div
+        v-if="!isReadOnlyView"
         class="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
       >
         <label class="chrome-label">

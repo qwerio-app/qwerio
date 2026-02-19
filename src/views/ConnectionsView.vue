@@ -46,6 +46,7 @@ const modalTitle = computed(() =>
 
 const form = reactive({
   name: "",
+  showInternalSchemas: false,
   kind: (isWebRuntime
     ? "web-provider"
     : "desktop-tcp") as ConnectionTarget["kind"],
@@ -253,6 +254,7 @@ function resetForm(): void {
   editingConnectionId.value = null;
   editingSecret.value = null;
   form.name = "";
+  form.showInternalSchemas = false;
   form.kind = isWebRuntime ? "web-provider" : "desktop-tcp";
   form.dialect = "postgres";
   form.host = "";
@@ -338,6 +340,7 @@ function hydrateFormFromProfile(
   secret: ConnectionSecret | null,
 ): void {
   form.name = profile.name;
+  form.showInternalSchemas = Boolean(profile.showInternalSchemas);
   form.host = "";
   form.port = 5432;
   form.database = "";
@@ -451,6 +454,7 @@ async function testConnection(): Promise<void> {
       id: TEST_CONNECTION_ID,
       name: form.name.trim() || "Connection Test",
       target,
+      showInternalSchemas: Boolean(form.showInternalSchemas),
       createdAt: now,
       updatedAt: now,
     };
@@ -516,11 +520,13 @@ async function submitConnection(): Promise<void> {
       const rollbackInput = {
         name: previousProfile.name,
         target: previousProfile.target,
+        showInternalSchemas: Boolean(previousProfile.showInternalSchemas),
       };
 
       const updateResult = store.updateConnection(editingId, {
         name: form.name,
         target,
+        showInternalSchemas: form.showInternalSchemas,
       });
 
       if (!updateResult.ok) {
@@ -549,6 +555,7 @@ async function submitConnection(): Promise<void> {
     const result = store.addConnection({
       name: form.name,
       target,
+      showInternalSchemas: form.showInternalSchemas,
     });
 
     if (!result.ok) {
@@ -624,7 +631,7 @@ async function removeConnection(id: string): Promise<void> {
         {{ feedback }}
       </p>
 
-      <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <button
           type="button"
           class="group flex min-h-[168px] flex-col justify-center gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
@@ -786,16 +793,25 @@ async function removeConnection(id: string): Promise<void> {
             class="flex flex-col gap-3 p-4"
             @submit.prevent="submitConnection"
           >
-            <p v-if="isEditing" class="text-xs text-[var(--chrome-yellow)]">
-              Editing profile. Test and save to apply updates.
-            </p>
-
             <label class="chrome-label">
               <span>Name</span>
               <input
                 v-model="form.name"
                 class="chrome-input mt-1"
                 type="text"
+              />
+            </label>
+
+            <label
+              class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
+            >
+              <span class="text-xs text-[var(--chrome-ink-dim)]">
+                Show internal schemas (`pg_catalog`, `information_schema`)
+              </span>
+              <input
+                v-model="form.showInternalSchemas"
+                type="checkbox"
+                class="size-4 accent-[var(--chrome-red)]"
               />
             </label>
 
@@ -922,7 +938,7 @@ async function removeConnection(id: string): Promise<void> {
                     v-model="form.endpoint"
                     class="chrome-input mt-1"
                     type="text"
-                    placeholder="localhost:6543/v1"
+                    placeholder="localhost:6543"
                   />
                 </label>
 

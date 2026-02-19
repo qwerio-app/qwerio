@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { useStorage } from "@vueuse/core";
 import { format } from "sql-formatter";
 import { getQueryEngine } from "../core/query-engine-service";
+import { createEmptySchemaObjectMap, type SchemaObjectMap } from "../core/query-engine";
 import type { QueryResult } from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
@@ -20,15 +21,18 @@ export type TableTab = {
   connectionId: string;
   schemaName: string;
   tableName: string;
+  objectType?: "table" | "view";
 };
 
 type OpenTableTabInput = {
   connectionId: string;
   schemaName: string;
   tableName: string;
+  objectType?: "table" | "view";
 };
 
 type TableMap = Record<string, Array<{ name: string }>>;
+type SchemaObjectsBySchema = Record<string, SchemaObjectMap>;
 
 const DEFAULT_SQL = "select id, name from users limit 100;";
 
@@ -72,6 +76,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   const errorMessage = ref<string>("");
   const schemaNames = ref<Array<{ name: string }>>([]);
   const tableMap = ref<TableMap>({});
+  const schemaObjectMap = ref<SchemaObjectsBySchema>({});
   const resultByTabId = ref<Record<string, QueryResult | null>>(
     Object.fromEntries(tabs.value.map((tab) => [tab.id, null])),
   );
@@ -164,12 +169,18 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     tab.sql = sql;
   }
 
-  function openTableTab({ connectionId, schemaName, tableName }: OpenTableTabInput): TableTab {
+  function openTableTab({
+    connectionId,
+    schemaName,
+    tableName,
+    objectType = "table",
+  }: OpenTableTabInput): TableTab {
     let tab = tableTabs.value.find(
       (item) =>
         item.connectionId === connectionId &&
         item.schemaName === schemaName &&
-        item.tableName === tableName,
+        item.tableName === tableName &&
+        (item.objectType ?? "table") === objectType,
     );
     const title = `${schemaName}.${tableName}`;
 
@@ -180,10 +191,12 @@ export const useWorkbenchStore = defineStore("workbench", () => {
         connectionId,
         schemaName,
         tableName,
+        objectType,
       };
       tableTabs.value = [tab, ...tableTabs.value];
     } else {
       tab.title = title;
+      tab.objectType = objectType;
     }
 
     return tab;
@@ -250,23 +263,52 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     if (!activeConnection) {
       schemaNames.value = [];
       tableMap.value = {};
+      schemaObjectMap.value = {};
       return;
     }
 
     const engine = getQueryEngine();
     await engine.connect(activeConnection);
-    const schemas = await engine.listSchemas(activeConnection.id);
+    let schemas = await engine.listSchemas(activeConnection.id);
+
+    if (schemas.length === 0) {
+      try {
+        const fallbackSql =
+          activeConnection.target.dialect === "postgres"
+            ? "select current_schema() as name"
+            : "select database() as name";
+        const fallbackResult = await engine.execute({
+          connectionId: activeConnection.id,
+          sql: fallbackSql,
+        });
+        const fallbackName = String(fallbackResult.rows[0]?.name ?? "").trim();
+
+        if (fallbackName.length > 0) {
+          schemas = [{ name: fallbackName }];
+        }
+      } catch {
+        // Keep empty schema list when fallback lookup is unavailable.
+      }
+    }
+
     schemaNames.value = schemas;
 
     const nextMap: TableMap = {};
+    const nextObjectMap: SchemaObjectsBySchema = {};
 
     await Promise.all(
       schemas.map(async (schema) => {
-        nextMap[schema.name] = await engine.listTables(activeConnection.id, schema.name);
+        const objects = await engine.listSchemaObjects(activeConnection.id, schema.name);
+        nextMap[schema.name] = objects.tables;
+        nextObjectMap[schema.name] = {
+          ...createEmptySchemaObjectMap(),
+          ...objects,
+        };
       }),
     );
 
     tableMap.value = nextMap;
+    schemaObjectMap.value = nextObjectMap;
   }
 
   return {
@@ -278,6 +320,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     errorMessage,
     schemaNames,
     tableMap,
+    schemaObjectMap,
     tableTabs,
     addTab,
     closeTab,

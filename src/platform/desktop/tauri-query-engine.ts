@@ -1,4 +1,5 @@
 import type { QueryEngine } from "../../core/query-engine";
+import type { SchemaObjectMap } from "../../core/query-engine";
 import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/types";
 
 async function tauriInvoke<T>(command: string, payload: Record<string, unknown>): Promise<T> {
@@ -38,5 +39,9 @@ export class TauriQueryEngine implements QueryEngine {
 
   async listTables(connectionId: string, schema: string): Promise<Array<{ name: string }>> {
     return tauriInvoke<Array<{ name: string }>>("db_list_tables", { connectionId, schema });
+  }
+
+  async listSchemaObjects(connectionId: string, schema: string): Promise<SchemaObjectMap> {
+    return tauriInvoke<SchemaObjectMap>("db_list_schema_objects", { connectionId, schema });
   }
 }

@@ -57,6 +57,19 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
             class="size-4 accent-[var(--chrome-red)]"
           />
         </label>
+
+        <label
+          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
+        >
+          <span class="text-xs text-[var(--chrome-ink-dim)]"
+            >Show advanced schema groups (functions, triggers, indexes...)</span
+          >
+          <input
+            v-model="appSettingsStore.showAdvancedSchemaGroups"
+            type="checkbox"
+            class="size-4 accent-[var(--chrome-red)]"
+          />
+        </label>
       </div>
     </section>
 
