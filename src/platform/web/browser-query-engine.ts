@@ -4,6 +4,7 @@ import { loadConnectionSecret } from "../../core/secret-vault";
 import type { ConnectionProfile, ConnectionSecret, QueryRequest, QueryResult } from "../../core/types";
 import { NeonServerlessAdapter } from "./providers/neon-adapter";
 import { PlanetScaleAdapter } from "./providers/planetscale-adapter";
+import { ProxyAdapter } from "./providers/proxy-adapter";
 import type { ProviderAdapter } from "./providers/provider-adapter";
 
 export class BrowserQueryEngine implements QueryEngine {
@@ -82,6 +83,13 @@ export class BrowserQueryEngine implements QueryEngine {
         }
 
         return new NeonServerlessAdapter(secret.connectionString, connection.target.endpoint);
+      }
+      case "proxy": {
+        if (secret.provider !== "proxy") {
+          throw new Error("This proxy connection is missing proxy credentials.");
+        }
+
+        return new ProxyAdapter(secret.connectionString, connection.target.endpoint);
       }
       case "planetscale": {
         if (secret.provider !== "planetscale") {

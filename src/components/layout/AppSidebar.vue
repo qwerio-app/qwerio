@@ -48,7 +48,9 @@ const activeConnectionDescription = computed(() => {
       ? "Desktop"
       : activeConnection.value.target.provider === "neon"
         ? "Neon"
-        : "PlanetScale";
+        : activeConnection.value.target.provider === "proxy"
+          ? "Proxy"
+          : "PlanetScale";
 
   return `${activeConnection.value.target.dialect.toUpperCase()} · ${source}`;
 });

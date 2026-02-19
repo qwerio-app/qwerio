@@ -20,6 +20,13 @@ export type ConnectionTarget =
     }
   | {
       kind: "web-provider";
+      dialect: "postgres";
+      provider: "proxy";
+      endpoint: string;
+      projectId?: string;
+    }
+  | {
+      kind: "web-provider";
       dialect: "mysql";
       provider: "planetscale";
       endpoint: string;
@@ -34,6 +41,11 @@ export type ConnectionSecret =
   | {
       kind: "web-provider";
       provider: "neon";
+      connectionString: string;
+    }
+  | {
+      kind: "web-provider";
+      provider: "proxy";
       connectionString: string;
     }
   | {

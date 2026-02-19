@@ -47,9 +47,6 @@ const modalTitle = computed(() =>
 const form = reactive({
   name: "",
   showInternalSchemas: false,
-  kind: (isWebRuntime
-    ? "web-provider"
-    : "desktop-tcp") as ConnectionTarget["kind"],
   dialect: "postgres" as DbDialect,
   host: "",
   port: 5432,
@@ -95,7 +92,7 @@ async function ensureWebVaultUnlockedFor(
 }
 
 function toConnectionTarget(): ConnectionTarget {
-  if (form.kind === "desktop-tcp") {
+  if (!isWebRuntime) {
     return {
       kind: "desktop-tcp",
       dialect: form.dialect,
@@ -120,7 +117,8 @@ function toConnectionTarget(): ConnectionTarget {
     kind: "web-provider",
     dialect: "postgres",
     provider: form.provider,
-    endpoint: form.endpoint.trim() || "default",
+    endpoint:
+      form.provider === "proxy" ? form.endpoint.trim() || "default" : "default",
     projectId: form.projectId || undefined,
   };
 }
@@ -148,7 +146,7 @@ function buildPostgresConnectionStringFromFields(): string | null {
 
   if (!host || !database || !user) {
     feedback.value =
-      "Host, database, and user are required for Neon Postgres details mode.";
+      "Host, database, and user are required for Postgres details mode.";
     return null;
   }
 
@@ -166,7 +164,8 @@ function buildPostgresConnectionStringFromFields(): string | null {
   return url.toString();
 }
 
-function resolveNeonConnectionString(
+function resolvePostgresConnectionString(
+  provider: "neon" | "proxy",
   allowExistingSecret = false,
 ): string | null {
   if (form.neonInputMode === "connection-string") {
@@ -177,12 +176,13 @@ function resolveNeonConnectionString(
     if (
       allowExistingSecret &&
       editingSecret.value?.kind === "web-provider" &&
-      editingSecret.value.provider === "neon"
+      (editingSecret.value.provider === provider ||
+        (provider === "proxy" && editingSecret.value.provider === "neon"))
     ) {
       return editingSecret.value.connectionString;
     }
 
-    feedback.value = "Neon connection string is required.";
+    feedback.value = "Postgres connection string is required.";
     return null;
   }
 
@@ -195,7 +195,8 @@ function resolveNeonConnectionString(
   if (
     allowExistingSecret &&
     editingSecret.value?.kind === "web-provider" &&
-    editingSecret.value.provider === "neon"
+    (editingSecret.value.provider === provider ||
+      (provider === "proxy" && editingSecret.value.provider === "neon"))
   ) {
     feedback.value = "";
     return editingSecret.value.connectionString;
@@ -237,7 +238,10 @@ function toConnectionSecret(
     return null;
   }
 
-  const connectionString = resolveNeonConnectionString(allowExistingSecret);
+  const connectionString = resolvePostgresConnectionString(
+    target.provider,
+    allowExistingSecret,
+  );
 
   if (!connectionString) {
     return null;
@@ -255,7 +259,6 @@ function resetForm(): void {
   editingSecret.value = null;
   form.name = "";
   form.showInternalSchemas = false;
-  form.kind = isWebRuntime ? "web-provider" : "desktop-tcp";
   form.dialect = "postgres";
   form.host = "";
   form.port = 5432;
@@ -355,7 +358,6 @@ function hydrateFormFromProfile(
   form.providerPassword = "";
 
   if (profile.target.kind === "desktop-tcp") {
-    form.kind = "desktop-tcp";
     form.dialect = profile.target.dialect;
     form.host = profile.target.host;
     form.port = profile.target.port;
@@ -369,9 +371,16 @@ function hydrateFormFromProfile(
     return;
   }
 
-  form.kind = "web-provider";
   form.dialect = profile.target.dialect;
-  form.provider = profile.target.provider;
+  const shouldMigrateLegacyNeonProxy =
+    profile.target.provider === "neon" &&
+    profile.target.endpoint.trim() !== "" &&
+    profile.target.endpoint !== "default" &&
+    profile.target.endpoint !== "neon-http";
+
+  form.provider = shouldMigrateLegacyNeonProxy
+    ? "proxy"
+    : profile.target.provider;
   form.endpoint = profile.target.endpoint;
   form.projectId = profile.target.projectId ?? "";
 
@@ -384,7 +393,11 @@ function hydrateFormFromProfile(
     return;
   }
 
-  if (secret?.kind === "web-provider" && secret.provider === "neon") {
+  if (
+    secret?.kind === "web-provider" &&
+    secret.provider === profile.target.provider &&
+    (secret.provider === "neon" || secret.provider === "proxy")
+  ) {
     hydrateNeonFieldsFromConnectionString(secret.connectionString);
   }
 }
@@ -616,8 +629,8 @@ async function removeConnection(id: string): Promise<void> {
           </h2>
           <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
             Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP
-            drivers. Web mode uses provider adapters (Neon/wsproxy for Postgres,
-            PlanetScale HTTP for MySQL).
+            drivers. Web mode uses provider adapters (Neon Serverless, WebSocket
+            Proxy for Postgres, PlanetScale HTTP for MySQL).
           </p>
         </div>
 
@@ -794,7 +807,7 @@ async function removeConnection(id: string): Promise<void> {
             @submit.prevent="submitConnection"
           >
             <label class="chrome-label">
-              <span>Name</span>
+              <span>Connection Name</span>
               <input
                 v-model="form.name"
                 class="chrome-input mt-1"
@@ -802,54 +815,50 @@ async function removeConnection(id: string): Promise<void> {
               />
             </label>
 
-            <label
-              class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
-            >
-              <span class="text-xs text-[var(--chrome-ink-dim)]">
-                Show internal schemas (`pg_catalog`, `information_schema`)
-              </span>
-              <input
-                v-model="form.showInternalSchemas"
-                type="checkbox"
-                class="size-4 accent-[var(--chrome-red)]"
-              />
-            </label>
-
-            <div class="grid grid-cols-2 gap-3">
-              <label class="chrome-label">
-                <span>Mode</span>
-                <select v-model="form.kind" class="chrome-input mt-1">
-                  <option value="desktop-tcp" :disabled="isWebRuntime">
-                    Desktop TCP
-                  </option>
-                  <option value="web-provider">Web Provider</option>
-                </select>
-              </label>
-
+            <div v-if="isWebRuntime" class="grid grid-cols-2 gap-3">
               <label class="chrome-label">
                 <span>Dialect</span>
                 <select
-                  v-model="form.dialect"
-                  :disabled="form.kind === 'web-provider'"
+                  :value="
+                    form.provider === 'planetscale' ? 'mysql' : 'postgres'
+                  "
+                  disabled
                   class="chrome-input mt-1"
                 >
                   <option value="postgres">Postgres</option>
                   <option value="mysql">MySQL</option>
                 </select>
               </label>
+
+              <label class="chrome-label">
+                <span>Provider</span>
+                <select v-model="form.provider" class="chrome-input mt-1">
+                  <option value="neon">Neon Serverless (Postgres)</option>
+                  <option value="proxy">Postgres (via WS proxy)</option>
+                  <option value="planetscale">PlanetScale (MySQL HTTP)</option>
+                </select>
+              </label>
             </div>
 
-            <template v-if="form.kind === 'desktop-tcp'">
-              <label class="chrome-label">
-                <span>Host</span>
-                <input
-                  v-model="form.host"
-                  class="chrome-input mt-1"
-                  type="text"
-                />
-              </label>
+            <label v-else class="chrome-label">
+              <span>Dialect</span>
+              <select v-model="form.dialect" class="chrome-input mt-1">
+                <option value="postgres">Postgres</option>
+                <option value="mysql">MySQL</option>
+              </select>
+            </label>
 
+            <template v-if="!isWebRuntime">
               <div class="grid grid-cols-2 gap-3">
+                <label class="chrome-label">
+                  <span>Hostname</span>
+                  <input
+                    v-model="form.host"
+                    class="chrome-input mt-1"
+                    type="text"
+                  />
+                </label>
+
                 <label class="chrome-label">
                   <span>Port</span>
                   <input
@@ -858,47 +867,50 @@ async function removeConnection(id: string): Promise<void> {
                     type="number"
                   />
                 </label>
-
-                <label class="chrome-label">
-                  <span>Database</span>
-                  <input
-                    v-model="form.database"
-                    class="chrome-input mt-1"
-                    type="text"
-                  />
-                </label>
               </div>
 
               <label class="chrome-label">
-                <span>User</span>
+                <span>Database</span>
                 <input
-                  v-model="form.user"
+                  v-model="form.database"
                   class="chrome-input mt-1"
                   type="text"
                 />
               </label>
 
-              <label class="chrome-label">
-                <span>Password (optional)</span>
+              <label class="flex items-center justify-end gap-1.5">
+                <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                  Show internal schemas (pg_catalog, information_schema, ...)
+                </span>
                 <input
-                  v-model="form.password"
-                  class="chrome-input mt-1"
-                  type="password"
+                  v-model="form.showInternalSchemas"
+                  type="checkbox"
+                  class="size-4 accent-[var(--chrome-red)]"
                 />
               </label>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="chrome-label">
+                  <span>Username</span>
+                  <input
+                    v-model="form.user"
+                    class="chrome-input mt-1"
+                    type="text"
+                  />
+                </label>
+
+                <label class="chrome-label">
+                  <span>Password (optional)</span>
+                  <input
+                    v-model="form.password"
+                    class="chrome-input mt-1"
+                    type="password"
+                  />
+                </label>
+              </div>
             </template>
 
             <template v-else>
-              <label class="chrome-label">
-                <span>Provider</span>
-                <select v-model="form.provider" class="chrome-input mt-1">
-                  <option value="neon">
-                    Neon Serverless (Postgres via wsproxy)
-                  </option>
-                  <option value="planetscale">PlanetScale (MySQL HTTP)</option>
-                </select>
-              </label>
-
               <template v-if="form.provider === 'planetscale'">
                 <label class="chrome-label">
                   <span>PlanetScale Host</span>
@@ -907,6 +919,17 @@ async function removeConnection(id: string): Promise<void> {
                     class="chrome-input mt-1"
                     type="text"
                     placeholder="aws.connect.psdb.cloud"
+                  />
+                </label>
+
+                <label class="flex items-center justify-end gap-1.5">
+                  <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                    Show internal schemas (pg_catalog, information_schema, ...)
+                  </span>
+                  <input
+                    v-model="form.showInternalSchemas"
+                    type="checkbox"
+                    class="size-4 accent-[var(--chrome-red)]"
                   />
                 </label>
 
@@ -932,7 +955,7 @@ async function removeConnection(id: string): Promise<void> {
               </template>
 
               <template v-else>
-                <label class="chrome-label">
+                <label v-if="form.provider === 'proxy'" class="chrome-label">
                   <span>WebSocket Proxy Endpoint (optional)</span>
                   <input
                     v-model="form.endpoint"
@@ -942,7 +965,10 @@ async function removeConnection(id: string): Promise<void> {
                   />
                 </label>
 
-                <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
+                <p
+                  v-if="form.provider === 'proxy'"
+                  class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]"
+                >
                   For local Postgres in browser mode, run wsproxy and set it
                   here (for example `localhost:6543/v1`).
                 </p>
@@ -959,17 +985,17 @@ async function removeConnection(id: string): Promise<void> {
                 </label>
 
                 <template v-if="form.neonInputMode === 'connection-details'">
-                  <label class="chrome-label">
-                    <span>Host</span>
-                    <input
-                      v-model="form.host"
-                      class="chrome-input mt-1"
-                      type="text"
-                      placeholder="localhost"
-                    />
-                  </label>
-
                   <div class="grid grid-cols-2 gap-3">
+                    <label class="chrome-label">
+                      <span>Hostname</span>
+                      <input
+                        v-model="form.host"
+                        class="chrome-input mt-1"
+                        type="text"
+                        placeholder="localhost"
+                      />
+                    </label>
+
                     <label class="chrome-label">
                       <span>Port</span>
                       <input
@@ -978,51 +1004,77 @@ async function removeConnection(id: string): Promise<void> {
                         type="number"
                       />
                     </label>
-
-                    <label class="chrome-label">
-                      <span>Database</span>
-                      <input
-                        v-model="form.database"
-                        class="chrome-input mt-1"
-                        type="text"
-                      />
-                    </label>
                   </div>
 
                   <label class="chrome-label">
-                    <span>User</span>
+                    <span>Database</span>
                     <input
-                      v-model="form.user"
+                      v-model="form.database"
                       class="chrome-input mt-1"
                       type="text"
                     />
                   </label>
 
-                  <label class="chrome-label">
-                    <span>Password (optional)</span>
+                  <label class="flex items-center justify-end gap-1.5">
+                    <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                      Show internal schemas (pg_catalog, information_schema,
+                      ...)
+                    </span>
                     <input
-                      v-model="form.password"
-                      class="chrome-input mt-1"
-                      type="password"
+                      v-model="form.showInternalSchemas"
+                      type="checkbox"
+                      class="size-4 accent-[var(--chrome-red)]"
                     />
                   </label>
+
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="chrome-label">
+                      <span>Username</span>
+                      <input
+                        v-model="form.user"
+                        class="chrome-input mt-1"
+                        type="text"
+                      />
+                    </label>
+
+                    <label class="chrome-label">
+                      <span>Password (optional)</span>
+                      <input
+                        v-model="form.password"
+                        class="chrome-input mt-1"
+                        type="password"
+                      />
+                    </label>
+                  </div>
                 </template>
 
                 <template v-else>
                   <label class="chrome-label">
-                    <span>Neon Connection String</span>
+                    <span>Postgres Connection String</span>
                     <input
                       v-model="form.connectionString"
                       class="chrome-input mt-1"
                       type="password"
-                      placeholder="postgresql://user:password@ep-...neon.tech/database"
+                      placeholder="postgresql://user:password@host:5432/database"
+                    />
+                  </label>
+
+                  <label class="flex items-center justify-end gap-1.5">
+                    <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                      Show internal schemas (pg_catalog, information_schema,
+                      ...)
+                    </span>
+                    <input
+                      v-model="form.showInternalSchemas"
+                      type="checkbox"
+                      class="size-4 accent-[var(--chrome-red)]"
                     />
                   </label>
                 </template>
               </template>
             </template>
 
-            <div class="mt-1 flex flex-wrap gap-2">
+            <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 class="chrome-btn inline-flex items-center gap-1"
@@ -1033,30 +1085,32 @@ async function removeConnection(id: string): Promise<void> {
                 {{ isTesting ? "Testing..." : "Test Connection" }}
               </button>
 
-              <button
-                type="submit"
-                :disabled="isSubmitting || isTesting"
-                class="chrome-btn chrome-btn-primary"
-              >
-                {{
-                  isSubmitting
-                    ? isEditing
-                      ? "Updating..."
-                      : "Saving..."
-                    : isEditing
-                      ? "Update Connection"
-                      : "Save Connection"
-                }}
-              </button>
+              <div class="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="chrome-btn"
+                  :disabled="isSubmitting || isTesting"
+                  @click="closeConnectionModal"
+                >
+                  Cancel
+                </button>
 
-              <button
-                type="button"
-                class="chrome-btn"
-                :disabled="isSubmitting || isTesting"
-                @click="closeConnectionModal"
-              >
-                Cancel
-              </button>
+                <button
+                  type="submit"
+                  :disabled="isSubmitting || isTesting"
+                  class="chrome-btn chrome-btn-primary"
+                >
+                  {{
+                    isSubmitting
+                      ? isEditing
+                        ? "Updating..."
+                        : "Saving..."
+                      : isEditing
+                        ? "Update Connection"
+                        : "Save Connection"
+                  }}
+                </button>
+              </div>
             </div>
 
             <p v-if="feedback" class="mt-1 text-xs text-[var(--chrome-yellow)]">

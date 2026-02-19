@@ -22,6 +22,14 @@ const neonTargetSchema = z.object({
   projectId: z.string().optional(),
 });
 
+const proxyTargetSchema = z.object({
+  kind: z.literal("web-provider"),
+  dialect: z.literal("postgres"),
+  provider: z.literal("proxy"),
+  endpoint: z.string().min(1, "Endpoint is required"),
+  projectId: z.string().optional(),
+});
+
 const planetScaleTargetSchema = z.object({
   kind: z.literal("web-provider"),
   dialect: z.literal("mysql"),
@@ -32,7 +40,12 @@ const planetScaleTargetSchema = z.object({
 
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
-  target: z.union([desktopTargetSchema, neonTargetSchema, planetScaleTargetSchema]),
+  target: z.union([
+    desktopTargetSchema,
+    neonTargetSchema,
+    proxyTargetSchema,
+    planetScaleTargetSchema,
+  ]),
   showInternalSchemas: z.boolean().optional(),
 });
 
