@@ -53,36 +53,6 @@ type StoredTabRecord = {
   updatedAt: string;
 };
 
-type LegacyStoredWorkbenchQueryTabRecord = StoredWorkbenchQueryTab & {
-  scope: "workbench";
-  order: number;
-  updatedAt?: string;
-};
-
-type StoredWorkbenchTableTabRecord = StoredWorkbenchTableTab & {
-  scope: "workbench";
-  order: number;
-  updatedAt?: string;
-};
-
-type LegacyStoredAppQueryTabRecord = StoredAppQueryTab & {
-  scope: "app";
-  order: number;
-  updatedAt?: string;
-};
-
-type LegacyStoredAppTableTabRecord = StoredAppTableTab & {
-  scope: "app";
-  order: number;
-  updatedAt?: string;
-};
-
-type LegacyStoredTabRecord =
-  | LegacyStoredWorkbenchQueryTabRecord
-  | StoredWorkbenchTableTabRecord
-  | LegacyStoredAppQueryTabRecord
-  | LegacyStoredAppTableTabRecord;
-
 type StoredSettingRecord = {
   key: string;
   value: unknown;
@@ -106,28 +76,10 @@ class QwerioAppDatabase extends Dexie {
 
     this.version(1).stores({
       connections: "id, order, updatedAt",
-      tabs: "id, scope, type, order, [scope+type], [scope+order], [scope+type+order]",
+      tabs: "id, type, order, tabId, connectionId, [type+tabId], updatedAt",
       settings: "key, updatedAt",
       variables: "key, updatedAt",
     });
-
-    this.version(2)
-      .stores({
-        connections: "id, order, updatedAt",
-        tabs: "id, type, order, tabId, connectionId, [type+tabId], updatedAt",
-        settings: "key, updatedAt",
-        variables: "key, updatedAt",
-      })
-      .upgrade(async (transaction) => {
-        const tabTable = transaction.table("tabs") as Table<LegacyStoredTabRecord | StoredTabRecord, string>;
-        const existingRecords = await tabTable.toArray();
-        const migratedRecords = migrateLegacyTabRecords(existingRecords);
-        await tabTable.clear();
-
-        if (migratedRecords.length > 0) {
-          await tabTable.bulkPut(migratedRecords);
-        }
-      });
   }
 }
 
@@ -148,7 +100,9 @@ function warnAboutStorageFailure(): void {
   }
 
   hasWarnedAboutStorage = true;
-  console.warn("IndexedDB storage is unavailable. Qwerio is running with in-memory state only.");
+  console.warn(
+    "IndexedDB storage is unavailable. Qwerio is running with in-memory state only.",
+  );
 }
 
 async function readFromDatabase<T>(
@@ -167,7 +121,9 @@ async function readFromDatabase<T>(
   }
 }
 
-async function writeToDatabase(operation: (database: QwerioAppDatabase) => Promise<void>): Promise<void> {
+async function writeToDatabase(
+  operation: (database: QwerioAppDatabase) => Promise<void>,
+): Promise<void> {
   if (!appDatabase) {
     return;
   }
@@ -225,11 +181,15 @@ function resolveUpdatedAt(...values: Array<unknown>): string {
   return timestamps[timestamps.length - 1] ?? nowIsoTimestamp();
 }
 
-function encodeTableObjectType(objectType: StoredWorkbenchTableTab["objectType"]): string {
+function encodeTableObjectType(
+  objectType: StoredWorkbenchTableTab["objectType"],
+): string {
   return `${TABLE_OBJECT_TYPE_SQL_PREFIX}${objectType}`;
 }
 
-function decodeTableObjectType(sql: string): StoredWorkbenchTableTab["objectType"] {
+function decodeTableObjectType(
+  sql: string,
+): StoredWorkbenchTableTab["objectType"] {
   if (!sql.startsWith(TABLE_OBJECT_TYPE_SQL_PREFIX)) {
     return "table";
   }
@@ -258,7 +218,10 @@ function parseTableTitle(title: string): {
   };
 }
 
-function resolveTableRecordTitle(incomingTitle: string, existingTitle: string | null): string {
+function resolveTableRecordTitle(
+  incomingTitle: string,
+  existingTitle: string | null,
+): string {
   const trimmedIncomingTitle = incomingTitle.trim();
   const trimmedExistingTitle = existingTitle?.trim() ?? "";
 
@@ -273,17 +236,19 @@ function resolveTableRecordTitle(incomingTitle: string, existingTitle: string | 
   return trimmedIncomingTitle || trimmedExistingTitle || "Table";
 }
 
-function isStoredTabRecord(record: LegacyStoredTabRecord | StoredTabRecord): record is StoredTabRecord {
-  return "tabId" in record && "path" in record && "connectionId" in record;
-}
-
 function isStoredTableRecordWithConnection(
   record: StoredTabRecord,
 ): record is StoredTabRecord & { type: "table"; connectionId: string } {
-  return record.type === "table" && typeof record.connectionId === "string" && record.connectionId.length > 0;
+  return (
+    record.type === "table" &&
+    typeof record.connectionId === "string" &&
+    record.connectionId.length > 0
+  );
 }
 
-function toSerializableConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
+function toSerializableConnectionProfile(
+  profile: ConnectionProfile,
+): ConnectionProfile {
   return profile.target.kind === "desktop-tcp"
     ? {
         ...profile,
@@ -299,174 +264,6 @@ function toSerializableConnectionProfile(profile: ConnectionProfile): Connection
       };
 }
 
-function migrateLegacyTabRecords(records: Array<LegacyStoredTabRecord | StoredTabRecord>): StoredTabRecord[] {
-  const migratedUnifiedRecords: StoredTabRecord[] = [];
-  const legacyAppRecords: Array<LegacyStoredAppQueryTabRecord | LegacyStoredAppTableTabRecord> = [];
-  const legacyWorkbenchQueryByTabId = new Map<string, LegacyStoredWorkbenchQueryTabRecord>();
-  const legacyWorkbenchTableByTabId = new Map<string, StoredWorkbenchTableTabRecord>();
-
-  records.forEach((record) => {
-    if (isStoredTabRecord(record)) {
-      const normalizedTabId = record.tabId.trim();
-
-      if (normalizedTabId.length === 0) {
-        return;
-      }
-
-      migratedUnifiedRecords.push({
-        id: toTabRecordKey(record.type, normalizedTabId),
-        type: record.type,
-        order: Number.isFinite(record.order) ? record.order : migratedUnifiedRecords.length,
-        connectionId: record.type === "table" ? record.connectionId ?? null : null,
-        tabId: normalizedTabId,
-        path: record.path || (record.type === "query" ? toQueryPath(normalizedTabId) : toTablePath(normalizedTabId)),
-        sql:
-          record.type === "query"
-            ? record.sql ?? ""
-            : record.sql || encodeTableObjectType("table"),
-        title: record.title || (record.type === "query" ? "Query" : "Table"),
-        updatedAt: resolveUpdatedAt(record.updatedAt),
-      });
-      return;
-    }
-
-    if (record.scope === "app") {
-      legacyAppRecords.push(record);
-      return;
-    }
-
-    if (record.type === "query") {
-      legacyWorkbenchQueryByTabId.set(record.id, record);
-      return;
-    }
-
-    legacyWorkbenchTableByTabId.set(record.id, record);
-  });
-
-  if (
-    legacyAppRecords.length === 0 &&
-    legacyWorkbenchQueryByTabId.size === 0 &&
-    legacyWorkbenchTableByTabId.size === 0
-  ) {
-    return migratedUnifiedRecords.sort((left, right) => left.order - right.order);
-  }
-
-  const nextRecords: StoredTabRecord[] = [];
-  const seenTabKeys = new Set<string>();
-
-  legacyAppRecords
-    .sort((left, right) => left.order - right.order)
-    .forEach((appRecord) => {
-      if (appRecord.type === "query") {
-        const tabId = appRecord.queryTabId.trim();
-        if (tabId.length === 0) {
-          return;
-        }
-
-        const tabKey = toTabRecordKey("query", tabId);
-        seenTabKeys.add(tabKey);
-        const workbenchRecord = legacyWorkbenchQueryByTabId.get(tabId);
-
-        nextRecords.push({
-          id: toTabRecordKey("query", tabId),
-          type: "query",
-          order: nextRecords.length,
-          connectionId: null,
-          tabId,
-          path: appRecord.routePath || toQueryPath(tabId),
-          sql: workbenchRecord?.sql ?? "",
-          title: workbenchRecord?.title || appRecord.title || "Query",
-          updatedAt: resolveUpdatedAt(appRecord.updatedAt, workbenchRecord?.updatedAt),
-        });
-        return;
-      }
-
-      const tableTabId = parseTableTabIdFromPageKey(appRecord.pageKey);
-      if (!tableTabId) {
-        return;
-      }
-
-      const tabKey = toTabRecordKey("table", tableTabId);
-      seenTabKeys.add(tabKey);
-      const workbenchRecord = legacyWorkbenchTableByTabId.get(tableTabId);
-
-      nextRecords.push({
-        id: toTabRecordKey("table", tableTabId),
-        type: "table",
-        order: nextRecords.length,
-        connectionId: workbenchRecord?.connectionId ?? null,
-        tabId: tableTabId,
-        path: appRecord.routePath || toTablePath(tableTabId),
-        sql: workbenchRecord ? encodeTableObjectType(workbenchRecord.objectType ?? "table") : encodeTableObjectType("table"),
-        title: workbenchRecord?.title || appRecord.title || "Table",
-        updatedAt: resolveUpdatedAt(appRecord.updatedAt, workbenchRecord?.updatedAt),
-      });
-    });
-
-  [...legacyWorkbenchQueryByTabId.values()]
-    .sort((left, right) => left.order - right.order)
-    .forEach((queryRecord) => {
-      const tabKey = toTabRecordKey("query", queryRecord.id);
-      if (seenTabKeys.has(tabKey)) {
-        return;
-      }
-
-      nextRecords.push({
-        id: toTabRecordKey("query", queryRecord.id),
-        type: "query",
-        order: nextRecords.length,
-        connectionId: null,
-        tabId: queryRecord.id,
-        path: toQueryPath(queryRecord.id),
-        sql: queryRecord.sql,
-        title: queryRecord.title || "Query",
-        updatedAt: resolveUpdatedAt(queryRecord.updatedAt),
-      });
-    });
-
-  [...legacyWorkbenchTableByTabId.values()]
-    .sort((left, right) => left.order - right.order)
-    .forEach((tableRecord) => {
-      const tabKey = toTabRecordKey("table", tableRecord.id);
-      if (seenTabKeys.has(tabKey)) {
-        return;
-      }
-
-      nextRecords.push({
-        id: toTabRecordKey("table", tableRecord.id),
-        type: "table",
-        order: nextRecords.length,
-        connectionId: tableRecord.connectionId ?? null,
-        tabId: tableRecord.id,
-        path: toTablePath(tableRecord.id),
-        sql: encodeTableObjectType(tableRecord.objectType ?? "table"),
-        title: tableRecord.title || "Table",
-        updatedAt: resolveUpdatedAt(tableRecord.updatedAt),
-      });
-    });
-
-  migratedUnifiedRecords
-    .sort((left, right) => left.order - right.order)
-    .forEach((record) => {
-      const tabKey = toTabRecordKey(record.type, record.tabId);
-      if (seenTabKeys.has(tabKey)) {
-        return;
-      }
-
-      seenTabKeys.add(tabKey);
-      nextRecords.push({
-        ...record,
-        id: toTabRecordKey(record.type, record.tabId),
-        order: nextRecords.length,
-      });
-    });
-
-  return nextRecords.map((record, order) => ({
-    ...record,
-    order,
-  }));
-}
-
 function parseStoredValue<T>(value: unknown, fallback: T): T {
   if (value === undefined) {
     return fallback;
@@ -475,7 +272,9 @@ function parseStoredValue<T>(value: unknown, fallback: T): T {
   return value as T;
 }
 
-export async function loadConnectionsFromStorage(): Promise<ConnectionProfile[]> {
+export async function loadConnectionsFromStorage(): Promise<
+  ConnectionProfile[]
+> {
   return readFromDatabase(async (database) => {
     const records = await database.connections.orderBy("order").toArray();
 
@@ -490,7 +289,9 @@ export async function loadConnectionsFromStorage(): Promise<ConnectionProfile[]>
   }, []);
 }
 
-export async function saveConnectionsToStorage(profiles: ConnectionProfile[]): Promise<void> {
+export async function saveConnectionsToStorage(
+  profiles: ConnectionProfile[],
+): Promise<void> {
   const records: StoredConnectionRecord[] = profiles.map((profile, order) => ({
     ...toSerializableConnectionProfile(profile),
     order,
@@ -511,44 +312,47 @@ export async function loadWorkbenchTabsFromStorage(): Promise<{
   queryTabs: StoredWorkbenchQueryTab[];
   tableTabs: StoredWorkbenchTableTab[];
 }> {
-  return readFromDatabase(async (database) => {
-    const records = await database.tabs.orderBy("order").toArray();
+  return readFromDatabase(
+    async (database) => {
+      const records = await database.tabs.orderBy("order").toArray();
 
-    const queryTabs = records
-      .filter((record): record is StoredTabRecord => record.type === "query")
-      .sort((left, right) => left.order - right.order)
-      .map((tab) => ({
-        type: "query" as const,
-        id: tab.tabId,
-        title: tab.title,
-        sql: tab.sql,
-      }));
-
-    const tableTabs = records
-      .filter(isStoredTableRecordWithConnection)
-      .sort((left, right) => left.order - right.order)
-      .map((tab) => {
-        const parsedTitle = parseTableTitle(tab.title);
-
-        return {
-          type: "table" as const,
+      const queryTabs = records
+        .filter((record): record is StoredTabRecord => record.type === "query")
+        .sort((left, right) => left.order - right.order)
+        .map((tab) => ({
+          type: "query" as const,
           id: tab.tabId,
           title: tab.title,
-          connectionId: tab.connectionId,
-          schemaName: parsedTitle.schemaName,
-          tableName: parsedTitle.tableName,
-          objectType: decodeTableObjectType(tab.sql),
-        };
-      });
+          sql: tab.sql,
+        }));
 
-    return {
-      queryTabs,
-      tableTabs,
-    };
-  }, {
-    queryTabs: [],
-    tableTabs: [],
-  });
+      const tableTabs = records
+        .filter(isStoredTableRecordWithConnection)
+        .sort((left, right) => left.order - right.order)
+        .map((tab) => {
+          const parsedTitle = parseTableTitle(tab.title);
+
+          return {
+            type: "table" as const,
+            id: tab.tabId,
+            title: tab.title,
+            connectionId: tab.connectionId,
+            schemaName: parsedTitle.schemaName,
+            tableName: parsedTitle.tableName,
+            objectType: decodeTableObjectType(tab.sql),
+          };
+        });
+
+      return {
+        queryTabs,
+        tableTabs,
+      };
+    },
+    {
+      queryTabs: [],
+      tableTabs: [],
+    },
+  );
 }
 
 export async function saveWorkbenchTabsToStorage(input: {
@@ -559,7 +363,12 @@ export async function saveWorkbenchTabsToStorage(input: {
   await writeToDatabase(async (database) => {
     await database.transaction("rw", database.tabs, async () => {
       const existingRecords = await database.tabs.toArray();
-      const existingByTabKey = new Map(existingRecords.map((record) => [toTabRecordKey(record.type, record.tabId), record]));
+      const existingByTabKey = new Map(
+        existingRecords.map((record) => [
+          toTabRecordKey(record.type, record.tabId),
+          record,
+        ]),
+      );
 
       const nextRecords: StoredTabRecord[] = [
         ...input.queryTabs.map((tab, order) => {
@@ -603,12 +412,17 @@ export async function saveWorkbenchTabsToStorage(input: {
   });
 }
 
-export async function loadAppTabsFromStorage(): Promise<Array<StoredAppQueryTab | StoredAppTableTab>> {
+export async function loadAppTabsFromStorage(): Promise<
+  Array<StoredAppQueryTab | StoredAppTableTab>
+> {
   return readFromDatabase(async (database) => {
     const records = await database.tabs.orderBy("order").toArray();
 
     return records
-      .filter((record): record is StoredTabRecord => record.type === "query" || record.type === "table")
+      .filter(
+        (record): record is StoredTabRecord =>
+          record.type === "query" || record.type === "table",
+      )
       .map((tab) =>
         tab.type === "query"
           ? {
@@ -629,12 +443,19 @@ export async function loadAppTabsFromStorage(): Promise<Array<StoredAppQueryTab 
   }, []);
 }
 
-export async function saveAppTabsToStorage(tabs: Array<StoredAppQueryTab | StoredAppTableTab>): Promise<void> {
+export async function saveAppTabsToStorage(
+  tabs: Array<StoredAppQueryTab | StoredAppTableTab>,
+): Promise<void> {
   const timestamp = nowIsoTimestamp();
   await writeToDatabase(async (database) => {
     await database.transaction("rw", database.tabs, async () => {
       const existingRecords = await database.tabs.toArray();
-      const existingByTabKey = new Map(existingRecords.map((record) => [toTabRecordKey(record.type, record.tabId), record]));
+      const existingByTabKey = new Map(
+        existingRecords.map((record) => [
+          toTabRecordKey(record.type, record.tabId),
+          record,
+        ]),
+      );
 
       const records: StoredTabRecord[] = [];
 
@@ -645,7 +466,9 @@ export async function saveAppTabsToStorage(tabs: Array<StoredAppQueryTab | Store
             return;
           }
 
-          const existingRecord = existingByTabKey.get(toTabRecordKey("query", tabId));
+          const existingRecord = existingByTabKey.get(
+            toTabRecordKey("query", tabId),
+          );
           records.push({
             id: toTabRecordKey("query", tabId),
             type: "query",
@@ -665,16 +488,27 @@ export async function saveAppTabsToStorage(tabs: Array<StoredAppQueryTab | Store
           return;
         }
 
-        const existingRecord = existingByTabKey.get(toTabRecordKey("table", tableTabId));
+        const existingRecord = existingByTabKey.get(
+          toTabRecordKey("table", tableTabId),
+        );
         records.push({
           id: toTabRecordKey("table", tableTabId),
           type: "table",
           order,
-          connectionId: existingRecord?.type === "table" ? existingRecord.connectionId : null,
+          connectionId:
+            existingRecord?.type === "table"
+              ? existingRecord.connectionId
+              : null,
           tabId: tableTabId,
           path: tab.routePath || toTablePath(tableTabId),
-          sql: existingRecord?.type === "table" ? existingRecord.sql : encodeTableObjectType("table"),
-          title: resolveTableRecordTitle(tab.title, existingRecord?.title ?? null),
+          sql:
+            existingRecord?.type === "table"
+              ? existingRecord.sql
+              : encodeTableObjectType("table"),
+          title: resolveTableRecordTitle(
+            tab.title,
+            existingRecord?.title ?? null,
+          ),
           updatedAt: timestamp,
         });
       });
@@ -710,7 +544,10 @@ export async function setSettingValue<T>(key: string, value: T): Promise<void> {
   });
 }
 
-export async function getVariableValue<T>(key: string, fallback: T): Promise<T> {
+export async function getVariableValue<T>(
+  key: string,
+  fallback: T,
+): Promise<T> {
   return readFromDatabase(async (database) => {
     const record = await database.variables.get(key);
 
@@ -722,7 +559,10 @@ export async function getVariableValue<T>(key: string, fallback: T): Promise<T> 
   }, fallback);
 }
 
-export async function setVariableValue<T>(key: string, value: T): Promise<void> {
+export async function setVariableValue<T>(
+  key: string,
+  value: T,
+): Promise<void> {
   await writeToDatabase(async (database) => {
     await database.variables.put({
       key,
