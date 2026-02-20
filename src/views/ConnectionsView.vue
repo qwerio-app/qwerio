@@ -274,10 +274,6 @@ function resetForm(): void {
   form.providerPassword = "";
 }
 
-function connectionKindLabel(profile: ConnectionProfile): string {
-  return profile.target.kind === "desktop-tcp" ? "Desktop TCP" : "Web Provider";
-}
-
 function connectionTargetLabel(profile: ConnectionProfile): string {
   if (profile.target.kind === "desktop-tcp") {
     return `${profile.target.host}:${profile.target.port}/${profile.target.database}`;
@@ -647,7 +643,7 @@ async function removeConnection(id: string): Promise<void> {
       <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <button
           type="button"
-          class="group flex min-h-[168px] flex-col justify-center gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
+          class="group flex min-h-[168px] flex-col justify-start gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
           :disabled="isSubmitting || isTesting"
           @click="openNewConnectionModal"
         >
@@ -674,7 +670,7 @@ async function removeConnection(id: string): Promise<void> {
           <div class="flex items-start justify-between gap-2">
             <button
               type="button"
-              class="flex min-w-0 items-start gap-2 text-left"
+              class="flex min-w-0 items-center gap-2 text-left"
               :disabled="isSubmitting || isTesting"
               @click="store.setActiveConnection(profile.id)"
             >
@@ -693,11 +689,6 @@ async function removeConnection(id: string): Promise<void> {
                   class="truncate text-sm font-semibold text-[var(--chrome-ink)]"
                 >
                   {{ profile.name }}
-                </p>
-                <p
-                  class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
-                >
-                  {{ connectionKindLabel(profile) }}
                 </p>
               </div>
             </button>

@@ -29,7 +29,9 @@ const footerLinks = [
   { to: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 const expandedSchemas = ref<Record<string, boolean>>({});
-const expandedSchemaGroups = ref<Record<string, Record<SidebarSchemaGroupKey, boolean>>>({});
+const expandedSchemaGroups = ref<
+  Record<string, Record<SidebarSchemaGroupKey, boolean>>
+>({});
 const isRefreshingSchema = ref(false);
 const schemaLoadError = ref("");
 const INTERNAL_SCHEMA_NAMES = new Set(["pg_catalog", "information_schema"]);
@@ -82,7 +84,8 @@ type SidebarSchemaObject = {
 
 const visibleSchemaGroupMeta = computed(() =>
   schemaGroupMeta.filter(
-    (groupMeta) => appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced,
+    (groupMeta) =>
+      appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced,
   ),
 );
 
@@ -115,7 +118,9 @@ const schemaObjects = computed<SidebarSchemaObject[]>(() =>
       label: groupMeta.label,
       items:
         schemaObjectGroup?.[groupMeta.key] ??
-        (groupMeta.key === "tables" ? workbenchStore.tableMap[schema.name] ?? [] : []),
+        (groupMeta.key === "tables"
+          ? (workbenchStore.tableMap[schema.name] ?? [])
+          : []),
     }));
     const totalCount = groups.reduce(
       (currentCount, group) => currentCount + group.items.length,
@@ -163,10 +168,15 @@ function isSchemaGroupExpanded(
   schemaName: string,
   groupKey: SidebarSchemaGroupKey,
 ): boolean {
-  return expandedSchemaGroups.value[schemaName]?.[groupKey] ?? groupKey === "tables";
+  return (
+    expandedSchemaGroups.value[schemaName]?.[groupKey] ?? groupKey === "tables"
+  );
 }
 
-function toggleSchemaGroup(schemaName: string, groupKey: SidebarSchemaGroupKey): void {
+function toggleSchemaGroup(
+  schemaName: string,
+  groupKey: SidebarSchemaGroupKey,
+): void {
   const currentSchemaGroups = expandedSchemaGroups.value[schemaName] ?? {};
   expandedSchemaGroups.value = {
     ...expandedSchemaGroups.value,
@@ -228,7 +238,10 @@ watch(
   () => workbenchStore.schemaNames.map((schema) => schema.name),
   (schemaNames) => {
     const nextExpanded: Record<string, boolean> = {};
-    const nextExpandedGroups: Record<string, Record<SidebarSchemaGroupKey, boolean>> = {};
+    const nextExpandedGroups: Record<
+      string,
+      Record<SidebarSchemaGroupKey, boolean>
+    > = {};
 
     schemaNames.forEach((schemaName) => {
       nextExpanded[schemaName] = expandedSchemas.value[schemaName] ?? false;
@@ -431,11 +444,11 @@ watch(
                 >
                   <button
                     type="button"
-                    class="flex w-full items-center gap-1 px-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
+                    class="flex w-full items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
                     @click="toggleSchemaGroup(schema.name, group.key)"
                   >
                     <ChevronRight
-                      :size="11"
+                      :size="12"
                       :class="
                         isSchemaGroupExpanded(schema.name, group.key)
                           ? 'shrink-0 rotate-90 text-[var(--chrome-ink-dim)]'
@@ -448,13 +461,16 @@ watch(
 
                   <ul
                     v-if="isSchemaGroupExpanded(schema.name, group.key)"
-                    class="m-0 list-none pb-1 pl-4 pr-1"
+                    class="m-0 list-none pb-1"
                   >
                     <li v-if="group.items.length === 0">
                       <div
-                        class="flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-[var(--chrome-ink-muted)]"
+                        class="flex items-center gap-1.5 pl-4 pr-1.5 py-1 text-[11px] text-[var(--chrome-ink-muted)]"
                       >
-                        <Table2 :size="11" class="text-[var(--chrome-yellow)]" />
+                        <Table2
+                          :size="11"
+                          class="text-[var(--chrome-yellow)]"
+                        />
                         <span>No {{ group.label }}</span>
                       </div>
                     </li>
@@ -467,7 +483,7 @@ watch(
                       <button
                         v-if="isOpenableRelationGroup(group.key)"
                         type="button"
-                        class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                        class="flex w-full items-center gap-1.5 border border-transparent pl-4 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
                         @click="
                           openRelation(
                             schema.name,
