@@ -9,6 +9,9 @@ const pin = ref("");
 const feedback = ref("");
 const isSubmitting = ref(false);
 const isPinComplete = computed(() => pin.value.length === 5);
+const isInitializingVault = computed(
+  () => vaultStore.needsUnlockPrompt && !vaultStore.status.initialized,
+);
 
 onMounted(() => {
   vaultStore.refreshStatus();
@@ -35,7 +38,9 @@ async function unlockVault(): Promise<void> {
     feedback.value =
       error instanceof Error
         ? error.message
-        : "Unable to unlock web secret vault.";
+        : isInitializingVault.value
+          ? "Unable to initialize web secret vault."
+          : "Unable to unlock web secret vault.";
   } finally {
     isSubmitting.value = false;
   }
@@ -64,12 +69,16 @@ watch(pin, (value, previousValue) => {
         <h2
           class="font-display text-xl font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
         >
-          Unlock Vault
+          {{ isInitializingVault ? "Initialize Vault" : "Unlock Vault" }}
         </h2>
       </div>
 
       <p class="mt-2 text-xs text-[var(--chrome-ink-dim)]">
-        Enter your 5-digit PIN to unlock encrypted connection credentials.
+        {{
+          isInitializingVault
+            ? "Create a 5-digit PIN to initialize encrypted connection credentials."
+            : "Enter your 5-digit PIN to unlock encrypted connection credentials."
+        }}
       </p>
 
       <form
@@ -78,7 +87,7 @@ watch(pin, (value, previousValue) => {
       >
         <VaultPinInput
           v-model="pin"
-          label="Unlock vault PIN"
+          :label="isInitializingVault ? 'Create vault PIN' : 'Unlock vault PIN'"
           :disabled="isSubmitting"
           :autofocus="true"
         />
@@ -87,7 +96,15 @@ watch(pin, (value, previousValue) => {
           class="chrome-btn chrome-btn-primary whitespace-nowrap"
           :disabled="isSubmitting || !isPinComplete"
         >
-          {{ isSubmitting ? "Unlocking..." : "Unlock" }}
+          {{
+            isSubmitting
+              ? isInitializingVault
+                ? "Initializing..."
+                : "Unlocking..."
+              : isInitializingVault
+                ? "Initialize"
+                : "Unlock"
+          }}
         </button>
       </form>
 

@@ -1,4 +1,9 @@
 import { detectRuntimeMode } from "./runtime";
+import {
+  getVariableValue,
+  isAppStorageSupported,
+  setVariableValue,
+} from "./storage/indexed-db";
 import type { ConnectionSecret } from "./types";
 
 const WEB_VAULT_KEY = "qwerio.web.secretVault.v1";
@@ -40,38 +45,35 @@ function isWebVaultSupported(): boolean {
   return (
     isWebRuntime() &&
     typeof window !== "undefined" &&
-    typeof window.localStorage !== "undefined" &&
+    isAppStorageSupported() &&
     typeof crypto !== "undefined" &&
     typeof crypto.subtle !== "undefined"
   );
 }
 
-function getWebVaultEnvelope(): WebVaultEnvelope | null {
+async function getWebVaultEnvelope(): Promise<WebVaultEnvelope | null> {
   if (!isWebVaultSupported()) {
     return null;
   }
 
-  const raw = window.localStorage.getItem(WEB_VAULT_KEY);
+  const envelope = await getVariableValue<WebVaultEnvelope | null>(
+    WEB_VAULT_KEY,
+    null,
+  );
 
-  if (!raw) {
+  if (!envelope) {
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(raw) as WebVaultEnvelope;
-
-    if (!parsed || parsed.version !== WEB_VAULT_VERSION) {
-      return null;
-    }
-
-    return parsed;
-  } catch {
+  if (envelope.version !== WEB_VAULT_VERSION) {
     return null;
   }
+
+  return envelope;
 }
 
-function setWebVaultEnvelope(envelope: WebVaultEnvelope): void {
-  window.localStorage.setItem(WEB_VAULT_KEY, JSON.stringify(envelope));
+async function setWebVaultEnvelope(envelope: WebVaultEnvelope): Promise<void> {
+  await setVariableValue(WEB_VAULT_KEY, envelope);
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -131,7 +133,7 @@ async function persistWebVault(cache: WebVaultCache): Promise<void> {
   const encodedSecrets = new TextEncoder().encode(JSON.stringify(cache.secrets));
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, cache.key, encodedSecrets);
 
-  setWebVaultEnvelope({
+  await setWebVaultEnvelope({
     version: WEB_VAULT_VERSION,
     salt: toBase64(cache.salt),
     iv: toBase64(iv),
@@ -151,7 +153,7 @@ function requireUnlockedWebVault(): WebVaultCache {
   return webVaultCache;
 }
 
-export function getWebSecretVaultStatus(): WebVaultStatus {
+export async function getWebSecretVaultStatus(): Promise<WebVaultStatus> {
   const supported = isWebVaultSupported();
 
   if (!supported) {
@@ -164,7 +166,7 @@ export function getWebSecretVaultStatus(): WebVaultStatus {
 
   return {
     supported: true,
-    initialized: getWebVaultEnvelope() !== null,
+    initialized: (await getWebVaultEnvelope()) !== null,
     unlocked: webVaultCache !== null,
   };
 }
@@ -177,7 +179,7 @@ export async function unlockWebSecretVault(pinInput: string): Promise<void> {
   const pin = normalizeVaultPin(pinInput);
   assertValidVaultPin(pin);
 
-  const envelope = getWebVaultEnvelope();
+  const envelope = await getWebVaultEnvelope();
 
   if (!envelope) {
     const salt = crypto.getRandomValues(new Uint8Array(16));

@@ -106,7 +106,7 @@ watch(
 
       appTabsStore.openPageTab({
         pageKey: `table:${tableTabId}`,
-        title: tableTab?.tableName ?? "Table",
+        title: tableTab?.title ?? "Table",
         routePath: tableTabId ? toTableRoutePath(tableTabId) : route.path,
         activate: true,
       });

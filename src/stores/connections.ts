@@ -1,9 +1,14 @@
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { useStorage } from "@vueuse/core";
 import { z } from "zod";
 import type { ConnectionProfile } from "../core/types";
 import { createNanoId } from "../core/nano-id";
+import {
+  getVariableValue,
+  loadConnectionsFromStorage,
+  saveConnectionsToStorage,
+  setVariableValue,
+} from "../core/storage/indexed-db";
 
 const desktopTargetSchema = z.object({
   kind: z.literal("desktop-tcp"),
@@ -50,10 +55,61 @@ const newConnectionSchema = z.object({
 });
 
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
+const ACTIVE_CONNECTION_ID_KEY = "variables.connections.activeConnectionId";
 
 export const useConnectionsStore = defineStore("connections", () => {
-  const profiles = useStorage<ConnectionProfile[]>("qwerio.connections", []);
-  const activeConnectionId = useStorage<string | null>("qwerio.connections.active", null);
+  const profiles = ref<ConnectionProfile[]>([]);
+  const activeConnectionId = ref<string | null>(null);
+  const hasHydrated = ref(false);
+
+  void (async () => {
+    profiles.value = await loadConnectionsFromStorage();
+    activeConnectionId.value = await getVariableValue<string | null>(
+      ACTIVE_CONNECTION_ID_KEY,
+      null,
+    );
+    hasHydrated.value = true;
+  })();
+
+  watch(
+    () => profiles.value.map((profile) => profile.id),
+    (profileIds) => {
+      if (profileIds.length === 0) {
+        activeConnectionId.value = null;
+        return;
+      }
+
+      if (
+        activeConnectionId.value &&
+        profileIds.includes(activeConnectionId.value)
+      ) {
+        return;
+      }
+
+      activeConnectionId.value = profileIds[0];
+    },
+    { immediate: true },
+  );
+
+  watch(
+    profiles,
+    (nextProfiles) => {
+      if (!hasHydrated.value) {
+        return;
+      }
+
+      void saveConnectionsToStorage(nextProfiles);
+    },
+    { deep: true },
+  );
+
+  watch(activeConnectionId, (value) => {
+    if (!hasHydrated.value) {
+      return;
+    }
+
+    void setVariableValue(ACTIVE_CONNECTION_ID_KEY, value);
+  });
 
   const activeProfile = computed(() =>
     profiles.value.find((profile) => profile.id === activeConnectionId.value) ?? null,

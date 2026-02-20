@@ -19,8 +19,8 @@ function getRouteQueryTabId(): string {
   return typeof route.params.queryTabId === "string" ? route.params.queryTabId : "";
 }
 
-function getFallbackQueryTabId(): string {
-  return workbenchStore.activeTab?.id ?? workbenchStore.tabs[0]?.id ?? workbenchStore.addTab().id;
+function createRouteQueryTabId(): string {
+  return workbenchStore.addTab().id;
 }
 
 watch(
@@ -35,7 +35,7 @@ watch(
     if (!queryTabId) {
       void router.replace({
         name: "query",
-        params: { queryTabId: getFallbackQueryTabId() },
+        params: { queryTabId: createRouteQueryTabId() },
       });
       return;
     }
@@ -43,7 +43,7 @@ watch(
     if (!workbenchStore.setActiveTab(queryTabId)) {
       void router.replace({
         name: "query",
-        params: { queryTabId: getFallbackQueryTabId() },
+        params: { queryTabId: createRouteQueryTabId() },
       });
     }
   },

@@ -1,7 +1,13 @@
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { useStorage } from "@vueuse/core";
-import { createNanoId } from "../core/nano-id";
+import {
+  getVariableValue,
+  loadAppTabsFromStorage,
+  saveAppTabsToStorage,
+  setVariableValue,
+  type StoredAppQueryTab,
+  type StoredAppTableTab,
+} from "../core/storage/indexed-db";
 
 export type QueryAppTab = {
   id: string;
@@ -39,6 +45,15 @@ type OpenPageTabInput = {
   routePath: string;
   activate?: boolean;
 };
+const ACTIVE_APP_TAB_ID_KEY = "variables.appTabs.activeTabId";
+
+function toQueryAppTabId(queryTabId: string): string {
+  return `query:${queryTabId}`;
+}
+
+function toPageAppTabId(pageKey: string): string {
+  return pageKey;
+}
 
 function isTabbablePageKey(pageKey: string): boolean {
   return pageKey.startsWith("table:");
@@ -53,8 +68,76 @@ function isTabbableAppTab(tab: AppTab): boolean {
 }
 
 export const useAppTabsStore = defineStore("app-tabs", () => {
-  const tabs = useStorage<AppTab[]>("qwerio.ui.appTabs", []);
-  const activeTabId = useStorage<string | null>("qwerio.ui.activeAppTabId", null);
+  const tabs = ref<AppTab[]>([]);
+  const activeTabId = ref<string | null>(null);
+  const hasHydrated = ref(false);
+
+  void (async () => {
+    const storedTabs = await loadAppTabsFromStorage();
+    tabs.value = storedTabs.map((tab) =>
+      tab.type === "query"
+        ? {
+            id: toQueryAppTabId(tab.queryTabId),
+            kind: "query",
+            title: tab.title,
+            routePath: tab.routePath,
+            queryTabId: tab.queryTabId,
+          }
+        : {
+            id: toPageAppTabId(tab.pageKey),
+            kind: "page",
+            title: tab.title,
+            routePath: tab.routePath,
+            pageKey: tab.pageKey,
+          },
+    );
+
+    activeTabId.value = await getVariableValue<string | null>(
+      ACTIVE_APP_TAB_ID_KEY,
+      null,
+    );
+    ensureActiveTab();
+    hasHydrated.value = true;
+  })();
+
+  watch(
+    tabs,
+    (nextTabs) => {
+      if (!hasHydrated.value) {
+        return;
+      }
+
+      const storedTabs: Array<StoredAppQueryTab | StoredAppTableTab> = nextTabs.map(
+        (tab) =>
+          tab.kind === "query"
+            ? {
+                type: "query",
+                id: tab.id,
+                title: tab.title,
+                routePath: tab.routePath,
+                queryTabId: tab.queryTabId,
+              }
+            : {
+                type: "table",
+                id: tab.id,
+                title: tab.title,
+                routePath: tab.routePath,
+                pageKey: tab.pageKey,
+              },
+      );
+
+      void saveAppTabsToStorage(storedTabs);
+    },
+    { deep: true },
+  );
+
+  watch(activeTabId, (value) => {
+    if (!hasHydrated.value) {
+      return;
+    }
+
+    void setVariableValue(ACTIVE_APP_TAB_ID_KEY, value);
+  });
 
   function sanitizeTabs(): void {
     tabs.value = tabs.value.filter(isTabbableAppTab);
@@ -94,7 +177,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
 
     if (!tab) {
       tab = {
-        id: createNanoId(),
+        id: toQueryAppTabId(queryTabId),
         kind: "query",
         title,
         routePath,
@@ -124,7 +207,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
 
     if (!tab) {
       tab = {
-        id: createNanoId(),
+        id: toPageAppTabId(pageKey),
         kind: "page",
         title,
         routePath,

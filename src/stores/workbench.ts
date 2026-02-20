@@ -1,6 +1,5 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { useStorage } from "@vueuse/core";
 import { format } from "sql-formatter";
 import { getQueryEngine } from "../core/query-engine-service";
 import { createEmptySchemaObjectMap, type SchemaObjectMap } from "../core/query-engine";
@@ -8,6 +7,12 @@ import type { QueryResult } from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
 import { createNanoId } from "../core/nano-id";
+import {
+  loadWorkbenchTabsFromStorage,
+  saveWorkbenchTabsToStorage,
+  type StoredWorkbenchQueryTab,
+  type StoredWorkbenchTableTab,
+} from "../core/storage/indexed-db";
 
 export type QueryTab = {
   id: string;
@@ -35,7 +40,6 @@ type TableMap = Record<string, Array<{ name: string }>>;
 type SchemaObjectsBySchema = Record<string, SchemaObjectMap>;
 
 const DEFAULT_SQL = "select id, name from users limit 100;";
-
 function getNextQueryIndex(tabs: QueryTab[]): number {
   const maxIndex = tabs.reduce((currentMax, tab) => {
     const match = /^Query (\d+)$/.exec(tab.title);
@@ -51,27 +55,16 @@ function getNextQueryIndex(tabs: QueryTab[]): number {
 }
 
 export const useWorkbenchStore = defineStore("workbench", () => {
-  const tabs = useStorage<QueryTab[]>("qwerio.workbench.tabs", [
+  const tabs = ref<QueryTab[]>([
     {
       id: createNanoId(),
       title: "Query 1",
       sql: DEFAULT_SQL,
     },
   ]);
-
-  const tableTabs = useStorage<TableTab[]>("qwerio.workbench.tableTabs", []);
-
-  if (tabs.value.length === 0) {
-    tabs.value = [
-      {
-        id: createNanoId(),
-        title: "Query 1",
-        sql: DEFAULT_SQL,
-      },
-    ];
-  }
-
-  const activeTabId = useStorage<string>("qwerio.workbench.activeTabId", tabs.value[0].id);
+  const tableTabs = ref<TableTab[]>([]);
+  const activeTabId = ref<string>(tabs.value[0].id);
+  const hasHydrated = ref(false);
   const isRunning = ref(false);
   const errorMessage = ref<string>("");
   const schemaNames = ref<Array<{ name: string }>>([]);
@@ -83,6 +76,37 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
   const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null);
   const activeResult = computed(() => (activeTab.value ? resultByTabId.value[activeTab.value.id] ?? null : null));
+
+  void (async () => {
+    const storedTabs = await loadWorkbenchTabsFromStorage();
+    tabs.value = storedTabs.queryTabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      sql: tab.sql,
+    }));
+    tableTabs.value = storedTabs.tableTabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      connectionId: tab.connectionId,
+      schemaName: tab.schemaName,
+      tableName: tab.tableName,
+      objectType: tab.objectType,
+    }));
+
+    if (tabs.value.length === 0) {
+      tabs.value = [
+        {
+          id: createNanoId(),
+          title: "Query 1",
+          sql: DEFAULT_SQL,
+        },
+      ];
+    }
+
+    activeTabId.value = tabs.value[0].id;
+
+    hasHydrated.value = true;
+  })();
 
   watch(
     () => tabs.value.map((tab) => tab.id),
@@ -112,6 +136,37 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       resultByTabId.value = nextResults;
     },
     { immediate: true },
+  );
+
+  watch(
+    [tabs, tableTabs],
+    ([queryTabs, nextTableTabs]) => {
+      if (!hasHydrated.value) {
+        return;
+      }
+
+      const storedQueryTabs: StoredWorkbenchQueryTab[] = queryTabs.map((tab) => ({
+        type: "query",
+        id: tab.id,
+        title: tab.title,
+        sql: tab.sql,
+      }));
+      const storedTableTabs: StoredWorkbenchTableTab[] = nextTableTabs.map((tab) => ({
+        type: "table",
+        id: tab.id,
+        title: tab.title,
+        connectionId: tab.connectionId,
+        schemaName: tab.schemaName,
+        tableName: tab.tableName,
+        objectType: tab.objectType ?? "table",
+      }));
+
+      void saveWorkbenchTabsToStorage({
+        queryTabs: storedQueryTabs,
+        tableTabs: storedTableTabs,
+      });
+    },
+    { deep: true },
   );
 
   function addTab(): QueryTab {

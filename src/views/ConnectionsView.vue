@@ -67,8 +67,8 @@ const form = reactive({
   providerPassword: "",
 });
 
-function refreshVaultStatus(): void {
-  vaultStore.refreshStatus();
+async function refreshVaultStatus(): Promise<void> {
+  await vaultStore.refreshStatus();
 }
 
 async function ensureWebVaultUnlockedFor(
@@ -78,10 +78,20 @@ async function ensureWebVaultUnlockedFor(
     return true;
   }
 
-  refreshVaultStatus();
+  await refreshVaultStatus();
 
   if (vaultStore.status.unlocked) {
     return true;
+  }
+
+  vaultStore.requestUnlockPrompt();
+
+  if (!vaultStore.status.initialized) {
+    feedback.value =
+      action === "save"
+        ? "Create a 5-digit vault PIN to initialize encrypted web credentials before saving this connection."
+        : "Create a 5-digit vault PIN to initialize encrypted web credentials before testing this connection.";
+    return false;
   }
 
   feedback.value =
