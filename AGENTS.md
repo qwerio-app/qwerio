@@ -11,6 +11,7 @@
 - `src/` contains the Vue 3 frontend.
 - `src/components/` holds reusable UI by area (`layout/`, `security/`, `workbench/`), while pages live in `src/views/`.
 - `src/stores/` contains Pinia stores, `src/router/` defines routes, and shared logic lives in `src/core/` and `src/lib/`.
+- Browser persistence is centralized in `src/core/storage/indexed-db.ts` (Dexie + IndexedDB).
 - Runtime-specific query adapters live in `src/platform/desktop/` and `src/platform/web/`.
 - Desktop backend code is in `src-tauri/src/` (Rust + Tauri commands).
 - Static assets are in `public/`; build outputs are `dist/` and `src-tauri/target/`.
@@ -22,6 +23,19 @@
   - Browser engine accepts only `web-provider` profiles.
 - Do not add browser fallbacks that attempt direct Postgres/MySQL sockets.
 - Keep provider adapters isolated per provider.
+
+## Storage Architecture Rules
+
+- Use Dexie/IndexedDB for browser app persistence; do not use `useStorage()` or raw `localStorage` for app state.
+- Keep the IndexedDB schema in `src/core/storage/indexed-db.ts` as the single source of truth.
+- Current app database structure:
+  - `connections`: persisted `ConnectionProfile` metadata and ordering.
+  - `tabs`: unified tab records across scopes (`workbench`, `app`) with `type` limited to `query` or `table`.
+  - `settings`: persisted UI/settings flags and templates.
+  - `variables`: persisted singleton-like values (for example active tab IDs and vault envelope metadata).
+- For app tabs, persist table/page-style tabs as `type: "table"` (never `type: "page"`).
+- Persist only one global active app tab variable (`variables.appTabs.activeTabId`) as the source of truth for active tab state.
+- Do not add backward-compatibility code for legacy localStorage keys unless explicitly requested.
 
 ## Current Connection and Provider Model
 
@@ -41,6 +55,7 @@
 - `ConnectionSecret` stores credentials and must stay type-aligned with the profile target/provider.
 - Desktop secret storage must go through Tauri commands (`secret_store`, `secret_load`, `secret_delete`).
 - Web secrets must stay in encrypted vault flow (`src/core/secret-vault.ts`) and require unlock before use.
+- Web vault envelope metadata is persisted in IndexedDB (`variables` table) under the existing vault key.
 - On failure to save secret after creating/updating a profile, roll back profile changes where applicable.
 - Never log raw passwords, connection strings, or decrypted secret payloads.
 
@@ -72,13 +87,21 @@
 - Use descriptive kebab-case for utility/core files (for example `query-engine-service.ts`).
 - Keep Tailwind usage aligned with shared design tokens and classes in `src/assets/main.css`.
 
+## Tailwind 4.2 Rules
+
+- The project is on Tailwind CSS `4.2.x`; do not downgrade or reintroduce v3 configuration patterns.
+- Use Tailwind v4 CSS entrypoint style in `src/assets/main.css`: `@import "tailwindcss";` and `@config "../../tailwind.config.cjs";`.
+- Do not use v3-only directives such as `@tailwind base`, `@tailwind components`, or `@tailwind utilities`.
+- PostCSS integration must use `@tailwindcss/postcss` in `postcss.config.cjs` (do not switch back to `tailwindcss` plugin wiring).
+
 ## Testing Guidelines
 
-- Primary frameworks are Vitest (`pnpm test`) and Playwright (`pnpm test:e2e`).
+- Primary frameworks are Vitest (`pnpm test`).
 - Place unit tests as `*.test.ts` near the module under test (or under nearby `__tests__/`).
 - Add e2e specs as `*.spec.ts` under `e2e/`.
 - Prioritize coverage for:
   - Connection profile validation and store behavior.
+  - Dexie persistence behavior for `connections`, `tabs`, `settings`, and `variables`.
   - Query-engine runtime routing (desktop vs web).
   - Provider adapter error handling and schema/query flows.
   - Vault unlock/lock behavior and secure secret reads/writes.
