@@ -34,7 +34,11 @@ const expandedSchemaGroups = ref<
 >({});
 const isRefreshingSchema = ref(false);
 const schemaLoadError = ref("");
-const INTERNAL_SCHEMA_NAMES = new Set(["pg_catalog", "information_schema"]);
+const INTERNAL_SCHEMA_NAMES = new Set([
+  "pg_catalog",
+  "information_schema",
+  "sys",
+]);
 
 const activeConnection = computed(() => connectionsStore.activeProfile);
 const activeConnectionName = computed(

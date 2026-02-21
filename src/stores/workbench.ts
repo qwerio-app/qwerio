@@ -272,7 +272,16 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       return;
     }
 
-    tab.sql = format(tab.sql, { language: "postgresql" });
+    const connectionStore = useConnectionsStore();
+    const activeConnection = connectionStore.activeProfile;
+    const language =
+      activeConnection?.target.dialect === "mysql"
+        ? "mysql"
+        : activeConnection?.target.dialect === "sqlserver"
+          ? "transactsql"
+          : "postgresql";
+
+    tab.sql = format(tab.sql, { language });
   }
 
   async function executeActiveQuery(): Promise<void> {
@@ -331,7 +340,9 @@ export const useWorkbenchStore = defineStore("workbench", () => {
         const fallbackSql =
           activeConnection.target.dialect === "postgres"
             ? "select current_schema() as name"
-            : "select database() as name";
+            : activeConnection.target.dialect === "mysql"
+              ? "select database() as name"
+              : "select schema_name() as name";
         const fallbackResult = await engine.execute({
           connectionId: activeConnection.id,
           sql: fallbackSql,

@@ -73,6 +73,10 @@ function quoteIdentifier(
     return `\`${identifier.replace(/`/g, "``")}\``;
   }
 
+  if (dialect === "sqlserver") {
+    return `[${identifier.replace(/]/g, "]]")}]`;
+  }
+
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
@@ -94,7 +98,10 @@ function buildSql(profile: ConnectionProfile): string {
     ? Math.min(Math.max(Math.floor(parsedLimit), 1), MAX_LIMIT)
     : DEFAULT_LIMIT;
 
-  let sql = `select * from ${schema}.${table}`;
+  let sql =
+    profile.target.dialect === "sqlserver"
+      ? `select top (${safeLimit}) * from ${schema}.${table}`
+      : `select * from ${schema}.${table}`;
 
   if (filters.whereClause.trim()) {
     sql += ` where ${filters.whereClause.trim()}`;
@@ -104,7 +111,10 @@ function buildSql(profile: ConnectionProfile): string {
     sql += ` order by ${filters.orderBy.trim()}`;
   }
 
-  sql += ` limit ${safeLimit}`;
+  if (profile.target.dialect !== "sqlserver") {
+    sql += ` limit ${safeLimit}`;
+  }
+
   return sql;
 }
 

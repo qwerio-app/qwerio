@@ -164,23 +164,6 @@ function toTabRecordKey(type: "query" | "table", tabId: string): string {
   return `${type}:${tabId}`;
 }
 
-function asValidTimestamp(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return null;
-  }
-
-  return Number.isNaN(Date.parse(value)) ? null : value;
-}
-
-function resolveUpdatedAt(...values: Array<unknown>): string {
-  const timestamps = values
-    .map(asValidTimestamp)
-    .filter((value): value is string => value !== null)
-    .sort((left, right) => Date.parse(left) - Date.parse(right));
-
-  return timestamps[timestamps.length - 1] ?? nowIsoTimestamp();
-}
-
 function encodeTableObjectType(
   objectType: StoredWorkbenchTableTab["objectType"],
 ): string {

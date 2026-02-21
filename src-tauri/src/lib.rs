@@ -1,18 +1,26 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use keyring::Entry;
 use mysql_async::prelude::Queryable;
 use mysql_async::{OptsBuilder, Pool, Row as MySqlRow, Value as MySqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
-use tokio::sync::RwLock;
+use tiberius::{
+    AuthMethod, Client as SqlServerRawClient, Config as SqlServerConfig, EncryptionLevel,
+    Row as SqlServerRow, ToSql as SqlServerToSql,
+};
+use tokio::net::TcpStream;
+use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client as PgClient, NoTls};
+use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 const KEYRING_SERVICE: &str = "qwerio.credentials";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+type SqlServerClient = SqlServerRawClient<tokio_util::compat::Compat<TcpStream>>;
 
 #[derive(Default)]
 struct AppState {
@@ -23,6 +31,7 @@ struct AppState {
 enum DbConnection {
     Postgres(Arc<PgClient>),
     MySql(Pool),
+    SqlServer(Arc<Mutex<SqlServerClient>>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,13 +168,18 @@ async fn db_connect(
 ) -> Result<(), String> {
     validate_connection_input(&connection)?;
     let secret = load_desktop_secret(&connection.id)?;
-    let password = secret.as_ref().and_then(|stored| stored.password.as_deref());
+    let password = secret
+        .as_ref()
+        .and_then(|stored| stored.password.as_deref());
 
     let db_connection = match connection.dialect.as_str() {
-        "postgres" => DbConnection::Postgres(Arc::new(
-            connect_postgres(&connection, password).await?,
-        )),
+        "postgres" => {
+            DbConnection::Postgres(Arc::new(connect_postgres(&connection, password).await?))
+        }
         "mysql" => DbConnection::MySql(connect_mysql(&connection, password).await?),
+        "sqlserver" => DbConnection::SqlServer(Arc::new(Mutex::new(
+            connect_sql_server(&connection, password).await?,
+        ))),
         _ => return Err(format!("Unsupported dialect: {}", connection.dialect)),
     };
 
@@ -176,7 +190,10 @@ async fn db_connect(
 }
 
 #[tauri::command]
-async fn db_execute(req: QueryRequest, state: tauri::State<'_, AppState>) -> Result<QueryResult, String> {
+async fn db_execute(
+    req: QueryRequest,
+    state: tauri::State<'_, AppState>,
+) -> Result<QueryResult, String> {
     if req.connection_id.is_empty() {
         return Err("connectionId is required".into());
     }
@@ -194,8 +211,13 @@ async fn db_execute(req: QueryRequest, state: tauri::State<'_, AppState>) -> Res
     };
 
     match connection {
-        DbConnection::Postgres(client) => execute_postgres(client.as_ref(), &req.sql, req.params.as_deref()).await,
+        DbConnection::Postgres(client) => {
+            execute_postgres(client.as_ref(), &req.sql, req.params.as_deref()).await
+        }
         DbConnection::MySql(pool) => execute_mysql(&pool, &req.sql, req.params.as_deref()).await,
+        DbConnection::SqlServer(client) => {
+            execute_sql_server(client.as_ref(), &req.sql, req.params.as_deref()).await
+        }
     }
 }
 
@@ -240,14 +262,13 @@ async fn db_list_schemas(
                 .map_err(|error| format!("MySQL connection failed: {error}"))?;
 
             let rows: Vec<(String,)> = conn
-                .query(
-                    "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name",
-                )
+                .query("SELECT schema_name FROM information_schema.schemata ORDER BY schema_name")
                 .await
                 .map_err(|error| format!("MySQL schema listing failed: {error}"))?;
 
             Ok(rows.into_iter().map(|(name,)| Schema { name }).collect())
         }
+        DbConnection::SqlServer(client) => sql_server_list_schemas(client.as_ref()).await,
     }
 }
 
@@ -304,6 +325,7 @@ async fn db_list_tables(
                 .map(|(name,)| DbObjectName { name })
                 .collect())
         }
+        DbConnection::SqlServer(client) => sql_server_list_tables(client.as_ref(), schema).await,
     }
 }
 
@@ -423,6 +445,9 @@ async fn db_list_schema_objects(
 
             Ok(result)
         }
+        DbConnection::SqlServer(client) => {
+            sql_server_list_schema_objects(client.as_ref(), schema).await
+        }
     }
 }
 
@@ -479,7 +504,9 @@ async fn connect_postgres(
 
                     match connect_postgres_config(socket_cfg).await {
                         Ok(client) => return Ok(client),
-                        Err(socket_error) => socket_errors.push(format!("{socket_dir}: {socket_error}")),
+                        Err(socket_error) => {
+                            socket_errors.push(format!("{socket_dir}: {socket_error}"))
+                        }
                     }
                 }
 
@@ -496,7 +523,10 @@ async fn connect_postgres(
     }
 }
 
-async fn connect_mysql(config: &DesktopConnectionConfig, password: Option<&str>) -> Result<Pool, String> {
+async fn connect_mysql(
+    config: &DesktopConnectionConfig,
+    password: Option<&str>,
+) -> Result<Pool, String> {
     let mut opts = OptsBuilder::default()
         .ip_or_hostname(config.host.clone())
         .tcp_port(config.port)
@@ -514,7 +544,11 @@ async fn connect_mysql(config: &DesktopConnectionConfig, password: Option<&str>)
         Err(tcp_error) => {
             #[cfg(unix)]
             if is_localhost_host(&config.host) {
-                let socket_paths = ["/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/tmp/mysql.sock"];
+                let socket_paths = [
+                    "/var/run/mysqld/mysqld.sock",
+                    "/run/mysqld/mysqld.sock",
+                    "/tmp/mysql.sock",
+                ];
                 let mut socket_errors: Vec<String> = Vec::new();
 
                 for socket in socket_paths {
@@ -555,10 +589,100 @@ async fn connect_mysql(config: &DesktopConnectionConfig, password: Option<&str>)
     }
 }
 
+async fn connect_sql_server(
+    config: &DesktopConnectionConfig,
+    password: Option<&str>,
+) -> Result<SqlServerClient, String> {
+    let normalized_host = normalize_sql_server_host_input(&config.host)?;
+    let host_candidates = sql_server_host_candidates(&normalized_host);
+    let encryption_candidates = [
+        EncryptionLevel::Required,
+        EncryptionLevel::On,
+        EncryptionLevel::Off,
+        EncryptionLevel::NotSupported,
+    ];
+    let mut errors: Vec<String> = Vec::new();
+
+    for host in host_candidates {
+        for encryption in encryption_candidates {
+            match connect_sql_server_attempt(config, password, host, encryption).await {
+                Ok(client) => return Ok(client),
+                Err(error) => {
+                    errors.push(format!(
+                        "{host} ({}) -> {error}",
+                        sql_server_encryption_label(encryption)
+                    ));
+                }
+            }
+        }
+    }
+
+    let attempts = errors.len();
+    let details = errors
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<String>>()
+        .join("; ");
+
+    Err(format!(
+        "SQL Server connection failed after {attempts} attempts. {details}. Checks: verify SQL Server TCP/IP is enabled, use host and explicit TCP port (not host\\\\instance), confirm SQL authentication is enabled, and confirm firewall access to port {}.",
+        config.port
+    ))
+}
+
+async fn connect_sql_server_attempt(
+    config: &DesktopConnectionConfig,
+    password: Option<&str>,
+    host: &str,
+    encryption: EncryptionLevel,
+) -> Result<SqlServerClient, String> {
+    let mut sql_server_config = SqlServerConfig::new();
+    sql_server_config.host(host);
+    sql_server_config.port(config.port);
+    sql_server_config.database(&config.database);
+    sql_server_config.authentication(AuthMethod::sql_server(
+        config.user.clone(),
+        password.unwrap_or_default().to_string(),
+    ));
+    sql_server_config.encryption(encryption);
+    if encryption != EncryptionLevel::NotSupported {
+        sql_server_config.trust_cert();
+    }
+
+    let tcp = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        TcpStream::connect(sql_server_config.get_addr()),
+    )
+    .await
+    .map_err(|_| format!("TCP connect timed out after {}s", CONNECT_TIMEOUT.as_secs()))?
+    .map_err(|error| format!("TCP connect failed: {error}"))?;
+    tcp.set_nodelay(true)
+        .map_err(|error| format!("Failed to set TCP nodelay: {error}"))?;
+
+    tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        SqlServerRawClient::connect(sql_server_config, tcp.compat_write()),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "Login/handshake timed out after {}s",
+            CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(|error| format!("Login/handshake failed: {error}"))
+}
+
 async fn connect_postgres_config(config: tokio_postgres::Config) -> Result<PgClient, String> {
-    let (client, connection) = config
-        .connect(NoTls)
+    let (client, connection) = tokio::time::timeout(CONNECT_TIMEOUT, config.connect(NoTls))
         .await
+        .map_err(|_| {
+            format!(
+                "Postgres connect timed out after {}s. Verify host reachability and credentials.",
+                CONNECT_TIMEOUT.as_secs()
+            )
+        })?
         .map_err(|error| error.to_string())?;
 
     tokio::spawn(async move {
@@ -571,8 +695,24 @@ async fn connect_postgres_config(config: tokio_postgres::Config) -> Result<PgCli
 }
 
 async fn verify_mysql_pool(pool: Pool) -> Result<Pool, String> {
-    let mut conn = pool.get_conn().await.map_err(|error| error.to_string())?;
-    conn.ping().await.map_err(|error| error.to_string())?;
+    let mut conn = tokio::time::timeout(CONNECT_TIMEOUT, pool.get_conn())
+        .await
+        .map_err(|_| {
+            format!(
+                "MySQL connect timed out after {}s. Verify host reachability and credentials.",
+                CONNECT_TIMEOUT.as_secs()
+            )
+        })?
+        .map_err(|error| error.to_string())?;
+    tokio::time::timeout(CONNECT_TIMEOUT, conn.ping())
+        .await
+        .map_err(|_| {
+            format!(
+                "MySQL ping timed out after {}s. Verify server responsiveness.",
+                CONNECT_TIMEOUT.as_secs()
+            )
+        })?
+        .map_err(|error| error.to_string())?;
     drop(conn);
     Ok(pool)
 }
@@ -589,8 +729,10 @@ async fn execute_postgres(
         .map_err(|error| format!("Postgres prepare failed: {error}"))?;
 
     let bind_params = build_postgres_params(params);
-    let bind_refs: Vec<&(dyn ToSql + Sync)> =
-        bind_params.iter().map(|value| value.as_ref() as &(dyn ToSql + Sync)).collect();
+    let bind_refs: Vec<&(dyn ToSql + Sync)> = bind_params
+        .iter()
+        .map(|value| value.as_ref() as &(dyn ToSql + Sync))
+        .collect();
 
     if looks_like_resultset_query(sql) || sql.to_lowercase().contains(" returning ") {
         let rows = client
@@ -749,6 +891,259 @@ async fn execute_mysql(
     })
 }
 
+async fn execute_sql_server(
+    client: &Mutex<SqlServerClient>,
+    sql: &str,
+    params: Option<&[JsonValue]>,
+) -> Result<QueryResult, String> {
+    ensure_sql_server_params_supported(params)?;
+    let started = Instant::now();
+    let mut guard = client.lock().await;
+
+    if !looks_like_resultset_query(sql) {
+        let bind_params: [&dyn SqlServerToSql; 0] = [];
+        let affected_rows = guard
+            .execute(sql, &bind_params)
+            .await
+            .map_err(|error| format!("SQL Server command execution failed: {error}"))?
+            .total();
+
+        return Ok(QueryResult {
+            columns: vec![QueryColumn {
+                name: "status".to_string(),
+                db_type: "text".to_string(),
+                nullable: false,
+            }],
+            rows: vec![serde_json::json!({
+                "status": format!("OK ({affected_rows} rows affected)")
+            })],
+            row_count: 1,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        });
+    }
+
+    let rows = guard
+        .simple_query(sql)
+        .await
+        .map_err(|error| format!("SQL Server query failed: {error}"))?
+        .into_first_result()
+        .await
+        .map_err(|error| format!("SQL Server row collection failed: {error}"))?;
+
+    let columns = rows
+        .first()
+        .map(|row| {
+            row.columns()
+                .iter()
+                .map(|column| QueryColumn {
+                    name: column.name().to_string(),
+                    db_type: format!("{:?}", column.column_type()),
+                    nullable: true,
+                })
+                .collect::<Vec<QueryColumn>>()
+        })
+        .unwrap_or_default();
+    let row_count = rows.len();
+    let rows = rows
+        .into_iter()
+        .map(sql_server_row_to_json)
+        .collect::<Vec<JsonValue>>();
+
+    Ok(QueryResult {
+        columns,
+        rows,
+        row_count,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+async fn sql_server_list_schemas(client: &Mutex<SqlServerClient>) -> Result<Vec<Schema>, String> {
+    let rows = sql_server_query_rows(
+        client,
+        "SELECT name FROM sys.schemas ORDER BY name",
+        "SQL Server schema listing failed",
+    )
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| sql_server_row_string(&row, 0))
+        .map(|name| Schema { name })
+        .collect())
+}
+
+async fn sql_server_list_tables(
+    client: &Mutex<SqlServerClient>,
+    schema: &str,
+) -> Result<Vec<DbObjectName>, String> {
+    let escaped_schema = escape_sql_server_literal(schema);
+    let sql = format!(
+        "SELECT table_name
+         FROM information_schema.tables
+         WHERE table_schema = N'{escaped_schema}' AND table_type = 'BASE TABLE'
+         ORDER BY table_name"
+    );
+    let rows = sql_server_query_rows(client, &sql, "SQL Server table listing failed").await?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| sql_server_row_string(&row, 0))
+        .map(|name| DbObjectName { name })
+        .collect())
+}
+
+async fn sql_server_list_schema_objects(
+    client: &Mutex<SqlServerClient>,
+    schema: &str,
+) -> Result<SchemaObjectMap, String> {
+    let escaped_schema = escape_sql_server_literal(schema);
+    let sql = format!(
+        "SELECT object_type, name FROM (
+            SELECT 'tables' AS object_type, t.name AS name
+            FROM sys.tables t
+            INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+            WHERE s.name = N'{escaped_schema}'
+            UNION ALL
+            SELECT 'views' AS object_type, v.name AS name
+            FROM sys.views v
+            INNER JOIN sys.schemas s ON s.schema_id = v.schema_id
+            WHERE s.name = N'{escaped_schema}'
+            UNION ALL
+            SELECT 'functions' AS object_type, o.name AS name
+            FROM sys.objects o
+            INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+            WHERE s.name = N'{escaped_schema}' AND o.type IN ('FN', 'IF', 'TF', 'FS', 'FT')
+            UNION ALL
+            SELECT 'procedures' AS object_type, p.name AS name
+            FROM sys.procedures p
+            INNER JOIN sys.schemas s ON s.schema_id = p.schema_id
+            WHERE s.name = N'{escaped_schema}'
+            UNION ALL
+            SELECT 'triggers' AS object_type, tr.name AS name
+            FROM sys.triggers tr
+            INNER JOIN sys.tables t ON t.object_id = tr.parent_id
+            INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+            WHERE s.name = N'{escaped_schema}'
+            UNION ALL
+            SELECT 'indexes' AS object_type, CONCAT(t.name, '.', i.name) AS name
+            FROM sys.indexes i
+            INNER JOIN sys.tables t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+            WHERE s.name = N'{escaped_schema}' AND i.name IS NOT NULL AND i.is_hypothetical = 0
+            GROUP BY t.name, i.name
+            UNION ALL
+            SELECT 'sequences' AS object_type, seq.name AS name
+            FROM sys.sequences seq
+            INNER JOIN sys.schemas s ON s.schema_id = seq.schema_id
+            WHERE s.name = N'{escaped_schema}'
+         ) objects
+         WHERE name IS NOT NULL
+         ORDER BY object_type, name"
+    );
+    let rows =
+        sql_server_query_rows(client, &sql, "SQL Server schema object listing failed").await?;
+    let mut result = SchemaObjectMap::empty();
+
+    for row in rows {
+        let object_type = sql_server_row_string(&row, 0).unwrap_or_default();
+        let name = sql_server_row_string(&row, 1).unwrap_or_default();
+        result.push(&object_type, name);
+    }
+
+    Ok(result)
+}
+
+async fn sql_server_query_rows(
+    client: &Mutex<SqlServerClient>,
+    sql: &str,
+    error_context: &str,
+) -> Result<Vec<SqlServerRow>, String> {
+    let mut guard = client.lock().await;
+    let query_stream = guard
+        .simple_query(sql)
+        .await
+        .map_err(|error| format!("{error_context}: {error}"))?;
+
+    query_stream
+        .into_first_result()
+        .await
+        .map_err(|error| format!("{error_context}: {error}"))
+}
+
+fn ensure_sql_server_params_supported(params: Option<&[JsonValue]>) -> Result<(), String> {
+    if let Some(values) = params {
+        if !values.is_empty() {
+            return Err(
+                "SQL Server parameter binding is not implemented yet. Use SQL text without params."
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn sql_server_row_string(row: &SqlServerRow, index: usize) -> Option<String> {
+    row.get::<&str, usize>(index).map(|value| value.to_string())
+}
+
+fn sql_server_row_to_json(row: SqlServerRow) -> JsonValue {
+    let mut object = JsonMap::new();
+
+    for (index, column) in row.columns().iter().enumerate() {
+        object.insert(
+            column.name().to_string(),
+            sql_server_cell_to_json(&row, index),
+        );
+    }
+
+    JsonValue::Object(object)
+}
+
+fn sql_server_cell_to_json(row: &SqlServerRow, index: usize) -> JsonValue {
+    if let Some(value) = row.get::<bool, usize>(index) {
+        return JsonValue::Bool(value);
+    }
+
+    if let Some(value) = row.get::<i16, usize>(index) {
+        return JsonValue::Number((value as i64).into());
+    }
+
+    if let Some(value) = row.get::<i32, usize>(index) {
+        return JsonValue::Number((value as i64).into());
+    }
+
+    if let Some(value) = row.get::<i64, usize>(index) {
+        return JsonValue::Number(value.into());
+    }
+
+    if let Some(value) = row.get::<f32, usize>(index) {
+        return JsonNumber::from_f64(value as f64)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(value) = row.get::<f64, usize>(index) {
+        return JsonNumber::from_f64(value)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(value) = row.get::<&str, usize>(index) {
+        return JsonValue::String(value.to_string());
+    }
+
+    if let Some(value) = row.get::<&[u8], usize>(index) {
+        return JsonValue::Array(value.iter().copied().map(JsonValue::from).collect());
+    }
+
+    JsonValue::Null
+}
+
+fn escape_sql_server_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 fn mysql_row_to_json(row: MySqlRow) -> JsonValue {
     let columns = Arc::new(row.columns_ref().to_vec());
     let values = row.unwrap();
@@ -768,7 +1163,12 @@ fn mysql_value_to_json(value: MySqlValue) -> JsonValue {
         MySqlValue::NULL => JsonValue::Null,
         MySqlValue::Bytes(bytes) => match String::from_utf8(bytes.clone()) {
             Ok(text) => JsonValue::String(text),
-            Err(_) => JsonValue::Array(bytes.into_iter().map(|byte| JsonValue::from(byte)).collect()),
+            Err(_) => JsonValue::Array(
+                bytes
+                    .into_iter()
+                    .map(|byte| JsonValue::from(byte))
+                    .collect(),
+            ),
         },
         MySqlValue::Int(value) => JsonValue::Number(value.into()),
         MySqlValue::UInt(value) => JsonValue::Number(value.into()),
@@ -778,15 +1178,19 @@ fn mysql_value_to_json(value: MySqlValue) -> JsonValue {
         MySqlValue::Double(value) => JsonNumber::from_f64(value)
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null),
-        MySqlValue::Date(year, month, day, hour, minute, second, micros) => JsonValue::String(format!(
-            "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{:06}",
-            micros
-        )),
-        MySqlValue::Time(is_negative, days, hours, minutes, seconds, micros) => JsonValue::String(format!(
-            "{}{days}d {hours:02}:{minutes:02}:{seconds:02}.{:06}",
-            if is_negative { "-" } else { "" },
-            micros
-        )),
+        MySqlValue::Date(year, month, day, hour, minute, second, micros) => {
+            JsonValue::String(format!(
+                "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{:06}",
+                micros
+            ))
+        }
+        MySqlValue::Time(is_negative, days, hours, minutes, seconds, micros) => {
+            JsonValue::String(format!(
+                "{}{days}d {hours:02}:{minutes:02}:{seconds:02}.{:06}",
+                if is_negative { "-" } else { "" },
+                micros
+            ))
+        }
     }
 }
 
@@ -826,7 +1230,10 @@ fn postgres_row_to_json(row: tokio_postgres::Row) -> JsonValue {
     let mut object = JsonMap::new();
 
     for (index, column) in row.columns().iter().enumerate() {
-        object.insert(column.name().to_string(), postgres_cell_to_json(&row, index));
+        object.insert(
+            column.name().to_string(),
+            postgres_cell_to_json(&row, index),
+        );
     }
 
     JsonValue::Object(object)
@@ -850,7 +1257,9 @@ fn postgres_cell_to_json(row: &tokio_postgres::Row, index: usize) -> JsonValue {
     }
 
     if let Ok(value) = row.try_get::<usize, Option<i64>>(index) {
-        return value.map(|number| JsonValue::Number(number.into())).unwrap_or(JsonValue::Null);
+        return value
+            .map(|number| JsonValue::Number(number.into()))
+            .unwrap_or(JsonValue::Null);
     }
 
     if let Ok(value) = row.try_get::<usize, Option<f32>>(index) {
@@ -894,7 +1303,77 @@ fn json_to_mysql_param(value: &JsonValue) -> MySqlValue {
             }
         }
         JsonValue::String(value) => MySqlValue::Bytes(value.as_bytes().to_vec()),
-        JsonValue::Array(_) | JsonValue::Object(_) => MySqlValue::Bytes(value.to_string().into_bytes()),
+        JsonValue::Array(_) | JsonValue::Object(_) => {
+            MySqlValue::Bytes(value.to_string().into_bytes())
+        }
+    }
+}
+
+fn normalize_sql_server_host_input(raw_host: &str) -> Result<String, String> {
+    let trimmed = raw_host.trim();
+    if trimmed.is_empty() {
+        return Err("SQL Server host is required.".into());
+    }
+
+    if trimmed.contains('\\') {
+        return Err(
+            "Named SQL Server instances in host (for example host\\\\SQLEXPRESS) are not supported yet. Use host/IP and explicit TCP port."
+                .into(),
+        );
+    }
+
+    let without_prefix = trimmed
+        .strip_prefix("tcp:")
+        .or_else(|| trimmed.strip_prefix("TCP:"))
+        .unwrap_or(trimmed)
+        .trim();
+    let without_brackets = without_prefix
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(without_prefix)
+        .trim();
+
+    let host_without_port = if let Some((host, suffix)) = without_brackets.rsplit_once(':') {
+        if !host.contains(':') && suffix.chars().all(|character| character.is_ascii_digit()) {
+            host.trim()
+        } else {
+            without_brackets
+        }
+    } else {
+        without_brackets
+    };
+
+    let host_without_comma_port = if let Some((host, suffix)) = host_without_port.rsplit_once(',') {
+        if suffix.chars().all(|character| character.is_ascii_digit()) {
+            host.trim()
+        } else {
+            host_without_port
+        }
+    } else {
+        host_without_port
+    };
+
+    if host_without_comma_port.is_empty() {
+        return Err("SQL Server host is invalid.".into());
+    }
+
+    Ok(host_without_comma_port.to_string())
+}
+
+fn sql_server_host_candidates(host: &str) -> Vec<&str> {
+    if host.eq_ignore_ascii_case("localhost") || host == "." {
+        vec!["localhost", "127.0.0.1"]
+    } else {
+        vec![host]
+    }
+}
+
+fn sql_server_encryption_label(encryption: EncryptionLevel) -> &'static str {
+    match encryption {
+        EncryptionLevel::Required => "encrypt=required",
+        EncryptionLevel::On => "encrypt=on",
+        EncryptionLevel::Off => "encrypt=off",
+        EncryptionLevel::NotSupported => "encrypt=not-supported",
     }
 }
 
@@ -910,6 +1389,7 @@ fn looks_like_resultset_query(sql: &str) -> bool {
 fn is_localhost_host(host: &str) -> bool {
     let normalized = host.trim().to_lowercase();
     normalized == "localhost"
+        || normalized == "."
         || normalized == "::1"
         || normalized.starts_with("127.")
 }
@@ -917,6 +1397,16 @@ fn is_localhost_host(host: &str) -> bool {
 fn validate_connection_input(connection: &DesktopConnectionConfig) -> Result<(), String> {
     if connection.id.is_empty() {
         return Err("connection.id is required".into());
+    }
+
+    match connection.dialect.as_str() {
+        "postgres" | "mysql" | "sqlserver" => {}
+        _ => {
+            return Err(format!(
+                "connection.dialect must be one of postgres, mysql, sqlserver. Received '{}'.",
+                connection.dialect
+            ));
+        }
     }
 
     if connection.host.is_empty() {

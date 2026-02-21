@@ -1,6 +1,6 @@
 import type { RuntimeMode } from "./runtime";
 
-export type DbDialect = "postgres" | "mysql";
+export type DbDialect = "postgres" | "mysql" | "sqlserver";
 
 export type ConnectionTarget =
   | {

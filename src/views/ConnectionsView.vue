@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import {
   CheckCircle2,
   FlaskConical,
@@ -43,13 +43,18 @@ const isEditing = computed(() => Boolean(editingConnectionId.value));
 const modalTitle = computed(() =>
   isEditing.value ? "Edit Connection" : "New Connection",
 );
+const DESKTOP_DEFAULT_PORTS: Record<DbDialect, number> = {
+  postgres: 5432,
+  mysql: 3306,
+  sqlserver: 1433,
+};
 
 const form = reactive({
   name: "",
   showInternalSchemas: false,
   dialect: "postgres" as DbDialect,
   host: "",
-  port: 5432,
+  port: DESKTOP_DEFAULT_PORTS.postgres,
   database: "",
   user: "",
   password: "",
@@ -66,6 +71,28 @@ const form = reactive({
   providerUsername: "",
   providerPassword: "",
 });
+
+watch(
+  () => form.dialect,
+  (nextDialect, previousDialect) => {
+    if (isWebRuntime) {
+      return;
+    }
+
+    const previousDefault =
+      previousDialect && previousDialect in DESKTOP_DEFAULT_PORTS
+        ? DESKTOP_DEFAULT_PORTS[previousDialect]
+        : null;
+
+    if (
+      form.port <= 0 ||
+      !Number.isFinite(form.port) ||
+      (previousDefault !== null && form.port === previousDefault)
+    ) {
+      form.port = DESKTOP_DEFAULT_PORTS[nextDialect];
+    }
+  },
+);
 
 async function refreshVaultStatus(): Promise<void> {
   await vaultStore.refreshStatus();
@@ -271,7 +298,7 @@ function resetForm(): void {
   form.showInternalSchemas = false;
   form.dialect = "postgres";
   form.host = "";
-  form.port = 5432;
+  form.port = DESKTOP_DEFAULT_PORTS.postgres;
   form.database = "";
   form.user = "";
   form.password = "";
@@ -337,7 +364,7 @@ function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
     form.neonInputMode = "connection-string";
     form.connectionString = connectionString;
     form.host = "";
-    form.port = 5432;
+    form.port = DESKTOP_DEFAULT_PORTS.postgres;
     form.database = "";
     form.user = "";
     form.password = "";
@@ -351,7 +378,7 @@ function hydrateFormFromProfile(
   form.name = profile.name;
   form.showInternalSchemas = Boolean(profile.showInternalSchemas);
   form.host = "";
-  form.port = 5432;
+  form.port = DESKTOP_DEFAULT_PORTS.postgres;
   form.database = "";
   form.user = "";
   form.password = "";
@@ -635,8 +662,9 @@ async function removeConnection(id: string): Promise<void> {
           </h2>
           <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
             Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP
-            drivers. Web mode uses provider adapters (Neon Serverless, WebSocket
-            Proxy for Postgres, PlanetScale HTTP for MySQL).
+            drivers for Postgres, MySQL, and SQL Server. Web mode uses provider
+            adapters (Neon Serverless, WebSocket Proxy for Postgres, PlanetScale
+            HTTP for MySQL).
           </p>
         </div>
 
@@ -846,6 +874,7 @@ async function removeConnection(id: string): Promise<void> {
               <select v-model="form.dialect" class="chrome-input mt-1">
                 <option value="postgres">Postgres</option>
                 <option value="mysql">MySQL</option>
+                <option value="sqlserver">SQL Server</option>
               </select>
             </label>
 
@@ -881,7 +910,7 @@ async function removeConnection(id: string): Promise<void> {
 
               <label class="flex items-center justify-end gap-1.5">
                 <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                  Show internal schemas (pg_catalog, information_schema, ...)
+                  Show internal and system schemas
                 </span>
                 <input
                   v-model="form.showInternalSchemas"
@@ -925,7 +954,7 @@ async function removeConnection(id: string): Promise<void> {
 
                 <label class="flex items-center justify-end gap-1.5">
                   <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                    Show internal schemas (pg_catalog, information_schema, ...)
+                    Show internal and system schemas
                   </span>
                   <input
                     v-model="form.showInternalSchemas"
@@ -1018,8 +1047,7 @@ async function removeConnection(id: string): Promise<void> {
 
                   <label class="flex items-center justify-end gap-1.5">
                     <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                      Show internal schemas (pg_catalog, information_schema,
-                      ...)
+                      Show internal and system schemas
                     </span>
                     <input
                       v-model="form.showInternalSchemas"
@@ -1062,8 +1090,7 @@ async function removeConnection(id: string): Promise<void> {
 
                   <label class="flex items-center justify-end gap-1.5">
                     <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                      Show internal schemas (pg_catalog, information_schema,
-                      ...)
+                      Show internal and system schemas
                     </span>
                     <input
                       v-model="form.showInternalSchemas"

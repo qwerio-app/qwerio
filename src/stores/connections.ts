@@ -12,7 +12,7 @@ import {
 
 const desktopTargetSchema = z.object({
   kind: z.literal("desktop-tcp"),
-  dialect: z.enum(["postgres", "mysql"]),
+  dialect: z.enum(["postgres", "mysql", "sqlserver"]),
   host: z.string().min(1, "Host is required"),
   port: z.number().int().positive(),
   database: z.string().min(1, "Database is required"),
