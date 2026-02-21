@@ -11,7 +11,7 @@ const vaultFeedback = ref("");
 
 const matrix = computed(() => [
   {
-    feature: "Direct TCP to Postgres/MySQL/SQL Server",
+    feature: "Native desktop DB access (Postgres/MySQL/SQL Server/SQLite)",
     desktop: "Supported",
     web: "Not available",
   },

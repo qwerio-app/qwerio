@@ -13,15 +13,22 @@ export class TauriQueryEngine implements QueryEngine {
       throw new Error("Desktop runtime requires a desktop-tcp connection profile.");
     }
 
+    const baseConnection = {
+      id: connection.id,
+      dialect: connection.target.dialect,
+      database: connection.target.database,
+    };
+
     await tauriInvoke<void>("db_connect", {
-      connection: {
-        id: connection.id,
-        dialect: connection.target.dialect,
-        host: connection.target.host,
-        port: connection.target.port,
-        database: connection.target.database,
-        user: connection.target.user,
-      },
+      connection:
+        connection.target.dialect === "sqlite"
+          ? baseConnection
+          : {
+              ...baseConnection,
+              host: connection.target.host,
+              port: connection.target.port,
+              user: connection.target.user,
+            },
     });
   }
 

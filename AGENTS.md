@@ -3,7 +3,9 @@
 ## Purpose and Scope
 
 - Build and maintain a dual-mode database client with a consistent UX across desktop (Tauri) and web.
-- Desktop mode supports direct TCP database access.
+- Desktop mode supports native database access:
+  - TCP-based drivers for Postgres, MySQL, SQL Server.
+  - File-based SQLite connections.
 - Web mode supports provider adapters only, never raw TCP.
 
 ## Project Structure and Module Organization
@@ -19,9 +21,9 @@
 ## Runtime Architecture Rules
 
 - Keep runtime boundaries explicit:
-  - Desktop engine accepts only `desktop-tcp` profiles.
+  - Desktop engine accepts only `desktop-tcp` profiles (including `dialect: "sqlite"` path-based profiles).
   - Browser engine accepts only `web-provider` profiles.
-- Do not add browser fallbacks that attempt direct Postgres/MySQL sockets.
+- Do not add browser fallbacks that attempt direct Postgres/MySQL/SQL Server sockets.
 - Keep provider adapters isolated per provider.
 
 ## Storage Architecture Rules
@@ -40,7 +42,8 @@
 ## Current Connection and Provider Model
 
 - Supported `ConnectionTarget` providers:
-  - `desktop-tcp` for desktop.
+  - `desktop-tcp` for desktop (`dialect` supports `postgres`, `mysql`, `sqlserver`, `sqlite`).
+    - For `sqlite`, use file-path style config with `database` only (no host/port/user).
   - `web-provider` `neon` (Postgres).
   - `web-provider` `proxy` (Postgres via proxy adapter).
   - `web-provider` `planetscale` (MySQL HTTP).
@@ -54,6 +57,7 @@
 - `ConnectionProfile` stores metadata only. Never store plaintext credentials there.
 - `ConnectionSecret` stores credentials and must stay type-aligned with the profile target/provider.
 - Desktop secret storage must go through Tauri commands (`secret_store`, `secret_load`, `secret_delete`).
+- SQLite desktop secrets should remain empty metadata-only payloads (no password field required).
 - Web secrets must stay in encrypted vault flow (`src/core/secret-vault.ts`) and require unlock before use.
 - Web vault envelope metadata is persisted in IndexedDB (`variables` table) under the existing vault key.
 - On failure to save secret after creating/updating a profile, roll back profile changes where applicable.
@@ -111,7 +115,9 @@
 - Keep changes focused by concern (UI, stores, runtime adapter, or Tauri backend).
 - If touching `src/platform/` or `src-tauri/`, run both JS and Rust checks before finalizing.
 - When changing connection flows, verify:
-  - Desktop TCP connect + query.
+  - Desktop connect + query:
+    - TCP drivers (Postgres, MySQL, SQL Server).
+    - SQLite file path (`dialect: "sqlite"`).
   - Web Neon/proxy connect + query.
   - Web vault locked/unlocked paths.
   - Edit existing connection without secret/profile mismatch.

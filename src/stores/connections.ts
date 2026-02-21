@@ -10,13 +10,19 @@ import {
   setVariableValue,
 } from "../core/storage/indexed-db";
 
-const desktopTargetSchema = z.object({
+const desktopTcpTargetSchema = z.object({
   kind: z.literal("desktop-tcp"),
   dialect: z.enum(["postgres", "mysql", "sqlserver"]),
   host: z.string().min(1, "Host is required"),
   port: z.number().int().positive(),
   database: z.string().min(1, "Database is required"),
   user: z.string().min(1, "User is required"),
+});
+
+const desktopSqliteTargetSchema = z.object({
+  kind: z.literal("desktop-tcp"),
+  dialect: z.literal("sqlite"),
+  database: z.string().min(1, "SQLite database path is required"),
 });
 
 const neonTargetSchema = z.object({
@@ -46,7 +52,8 @@ const planetScaleTargetSchema = z.object({
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
   target: z.union([
-    desktopTargetSchema,
+    desktopTcpTargetSchema,
+    desktopSqliteTargetSchema,
     neonTargetSchema,
     proxyTargetSchema,
     planetScaleTargetSchema,

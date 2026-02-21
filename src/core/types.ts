@@ -1,16 +1,24 @@
 import type { RuntimeMode } from "./runtime";
 
-export type DbDialect = "postgres" | "mysql" | "sqlserver";
+export type DbDialect = "postgres" | "mysql" | "sqlserver" | "sqlite";
 
-export type ConnectionTarget =
+export type DesktopConnectionTarget =
   | {
       kind: "desktop-tcp";
-      dialect: DbDialect;
+      dialect: "postgres" | "mysql" | "sqlserver";
       host: string;
       port: number;
       database: string;
       user: string;
     }
+  | {
+      kind: "desktop-tcp";
+      dialect: "sqlite";
+      database: string;
+    };
+
+export type ConnectionTarget =
+  | DesktopConnectionTarget
   | {
       kind: "web-provider";
       dialect: "postgres";

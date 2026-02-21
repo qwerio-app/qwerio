@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use keyring::Entry;
 use mysql_async::prelude::Queryable;
 use mysql_async::{OptsBuilder, Pool, Row as MySqlRow, Value as MySqlValue};
+use rusqlite::types::{Value as SqliteValue, ValueRef as SqliteValueRef};
+use rusqlite::{params_from_iter, Connection as SqliteConnection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use tiberius::{
@@ -32,6 +34,7 @@ enum DbConnection {
     Postgres(Arc<PgClient>),
     MySql(Pool),
     SqlServer(Arc<Mutex<SqlServerClient>>),
+    Sqlite(Arc<String>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,9 +42,12 @@ enum DbConnection {
 struct DesktopConnectionConfig {
     id: String,
     dialect: String,
+    #[serde(default)]
     host: String,
+    #[serde(default)]
     port: u16,
     database: String,
+    #[serde(default)]
     user: String,
 }
 
@@ -180,6 +186,7 @@ async fn db_connect(
         "sqlserver" => DbConnection::SqlServer(Arc::new(Mutex::new(
             connect_sql_server(&connection, password).await?,
         ))),
+        "sqlite" => DbConnection::Sqlite(Arc::new(connect_sqlite(&connection)?)),
         _ => return Err(format!("Unsupported dialect: {}", connection.dialect)),
     };
 
@@ -217,6 +224,9 @@ async fn db_execute(
         DbConnection::MySql(pool) => execute_mysql(&pool, &req.sql, req.params.as_deref()).await,
         DbConnection::SqlServer(client) => {
             execute_sql_server(client.as_ref(), &req.sql, req.params.as_deref()).await
+        }
+        DbConnection::Sqlite(database_path) => {
+            execute_sqlite(database_path.as_ref().as_str(), &req.sql, req.params.as_deref())
         }
     }
 }
@@ -269,6 +279,7 @@ async fn db_list_schemas(
             Ok(rows.into_iter().map(|(name,)| Schema { name }).collect())
         }
         DbConnection::SqlServer(client) => sql_server_list_schemas(client.as_ref()).await,
+        DbConnection::Sqlite(database_path) => list_sqlite_schemas(database_path.as_ref().as_str()),
     }
 }
 
@@ -326,6 +337,9 @@ async fn db_list_tables(
                 .collect())
         }
         DbConnection::SqlServer(client) => sql_server_list_tables(client.as_ref(), schema).await,
+        DbConnection::Sqlite(database_path) => {
+            list_sqlite_tables(database_path.as_ref().as_str(), schema)
+        }
     }
 }
 
@@ -447,6 +461,9 @@ async fn db_list_schema_objects(
         }
         DbConnection::SqlServer(client) => {
             sql_server_list_schema_objects(client.as_ref(), schema).await
+        }
+        DbConnection::Sqlite(database_path) => {
+            list_sqlite_schema_objects(database_path.as_ref().as_str(), schema)
         }
     }
 }
@@ -672,6 +689,15 @@ async fn connect_sql_server_attempt(
         )
     })?
     .map_err(|error| format!("Login/handshake failed: {error}"))
+}
+
+fn connect_sqlite(config: &DesktopConnectionConfig) -> Result<String, String> {
+    let database_path = config.database.trim();
+    let connection = open_sqlite_connection(database_path)?;
+    connection
+        .query_row("SELECT 1", [], |_row| Ok(()))
+        .map_err(|error| format!("SQLite connection test query failed: {error}"))?;
+    Ok(database_path.to_string())
 }
 
 async fn connect_postgres_config(config: tokio_postgres::Config) -> Result<PgClient, String> {
@@ -957,6 +983,87 @@ async fn execute_sql_server(
     })
 }
 
+fn execute_sqlite(
+    database_path: &str,
+    sql: &str,
+    params: Option<&[JsonValue]>,
+) -> Result<QueryResult, String> {
+    let started = Instant::now();
+    let connection = open_sqlite_connection(database_path)?;
+    let sqlite_params = build_sqlite_params(params);
+    let normalized_sql = sql.trim_start().to_lowercase();
+    let should_return_rows =
+        looks_like_resultset_query(sql) || normalized_sql.contains(" returning ");
+
+    if should_return_rows {
+        let mut statement = connection
+            .prepare(sql)
+            .map_err(|error| format!("SQLite prepare failed: {error}"))?;
+        let column_count = statement.column_count();
+        let column_names = (0..column_count)
+            .map(|index| {
+                statement
+                    .column_name(index)
+                    .map(|name| name.to_string())
+                    .unwrap_or_else(|_| format!("column_{}", index + 1))
+            })
+            .collect::<Vec<String>>();
+        let columns = column_names
+            .iter()
+            .map(|name| QueryColumn {
+                name: name.clone(),
+                db_type: "sqlite".to_string(),
+                nullable: true,
+            })
+            .collect::<Vec<QueryColumn>>();
+        let mut rows = statement
+            .query(params_from_iter(sqlite_params.iter()))
+            .map_err(|error| format!("SQLite query failed: {error}"))?;
+        let mut json_rows: Vec<JsonValue> = Vec::new();
+
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("SQLite row collection failed: {error}"))?
+        {
+            let mut object = JsonMap::new();
+
+            for (index, column_name) in column_names.iter().enumerate() {
+                let value = row
+                    .get_ref(index)
+                    .map(sqlite_value_ref_to_json)
+                    .unwrap_or(JsonValue::Null);
+                object.insert(column_name.clone(), value);
+            }
+
+            json_rows.push(JsonValue::Object(object));
+        }
+
+        return Ok(QueryResult {
+            columns,
+            row_count: json_rows.len(),
+            rows: json_rows,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        });
+    }
+
+    let affected_rows = connection
+        .execute(sql, params_from_iter(sqlite_params.iter()))
+        .map_err(|error| format!("SQLite command execution failed: {error}"))?;
+
+    Ok(QueryResult {
+        columns: vec![QueryColumn {
+            name: "status".to_string(),
+            db_type: "text".to_string(),
+            nullable: false,
+        }],
+        rows: vec![serde_json::json!({
+            "status": format!("OK ({affected_rows} rows affected)")
+        })],
+        row_count: 1,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
 async fn sql_server_list_schemas(client: &Mutex<SqlServerClient>) -> Result<Vec<Schema>, String> {
     let rows = sql_server_query_rows(
         client,
@@ -1053,6 +1160,101 @@ async fn sql_server_list_schema_objects(
     Ok(result)
 }
 
+fn list_sqlite_schemas(database_path: &str) -> Result<Vec<Schema>, String> {
+    let connection = open_sqlite_connection(database_path)?;
+    let mut statement = connection
+        .prepare("PRAGMA database_list")
+        .map_err(|error| format!("SQLite schema listing prepare failed: {error}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| format!("SQLite schema listing failed: {error}"))?;
+    let mut schemas: Vec<Schema> = Vec::new();
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("SQLite schema listing failed: {error}"))?
+    {
+        if let Ok(name) = row.get::<usize, String>(1) {
+            schemas.push(Schema { name });
+        }
+    }
+
+    Ok(schemas)
+}
+
+fn list_sqlite_tables(database_path: &str, schema: &str) -> Result<Vec<DbObjectName>, String> {
+    let connection = open_sqlite_connection(database_path)?;
+    let escaped_schema = escape_sqlite_identifier(schema);
+    let sql = format!(
+        "SELECT name FROM \"{escaped_schema}\".sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| format!("SQLite table listing prepare failed: {error}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| format!("SQLite table listing failed: {error}"))?;
+    let mut tables: Vec<DbObjectName> = Vec::new();
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("SQLite table listing failed: {error}"))?
+    {
+        if let Ok(name) = row.get::<usize, String>(0) {
+            tables.push(DbObjectName { name });
+        }
+    }
+
+    Ok(tables)
+}
+
+fn list_sqlite_schema_objects(
+    database_path: &str,
+    schema: &str,
+) -> Result<SchemaObjectMap, String> {
+    let connection = open_sqlite_connection(database_path)?;
+    let escaped_schema = escape_sqlite_identifier(schema);
+    let sql = format!(
+        "SELECT object_type, name FROM (
+            SELECT 'tables' AS object_type, name AS name
+            FROM \"{escaped_schema}\".sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            UNION ALL
+            SELECT 'views' AS object_type, name AS name
+            FROM \"{escaped_schema}\".sqlite_master
+            WHERE type = 'view'
+            UNION ALL
+            SELECT 'triggers' AS object_type, name AS name
+            FROM \"{escaped_schema}\".sqlite_master
+            WHERE type = 'trigger'
+            UNION ALL
+            SELECT 'indexes' AS object_type, name AS name
+            FROM \"{escaped_schema}\".sqlite_master
+            WHERE type = 'index' AND name NOT LIKE 'sqlite_%'
+        ) objects
+        WHERE name IS NOT NULL
+        ORDER BY object_type, name"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| format!("SQLite schema object listing prepare failed: {error}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| format!("SQLite schema object listing failed: {error}"))?;
+    let mut result = SchemaObjectMap::empty();
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("SQLite schema object listing failed: {error}"))?
+    {
+        let object_type = row.get::<usize, String>(0).unwrap_or_default();
+        let name = row.get::<usize, String>(1).unwrap_or_default();
+        result.push(&object_type, name);
+    }
+
+    Ok(result)
+}
+
 async fn sql_server_query_rows(
     client: &Mutex<SqlServerClient>,
     sql: &str,
@@ -1142,6 +1344,69 @@ fn sql_server_cell_to_json(row: &SqlServerRow, index: usize) -> JsonValue {
 
 fn escape_sql_server_literal(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn open_sqlite_connection(database_path: &str) -> Result<SqliteConnection, String> {
+    let trimmed_path = database_path.trim();
+
+    if trimmed_path.is_empty() {
+        return Err("SQLite database path is required.".into());
+    }
+
+    SqliteConnection::open(trimmed_path)
+        .map_err(|error| format!("SQLite connection failed for '{trimmed_path}': {error}"))
+}
+
+fn escape_sqlite_identifier(identifier: &str) -> String {
+    let trimmed = identifier.trim();
+    let schema_name = if trimmed.is_empty() { "main" } else { trimmed };
+    schema_name.replace('"', "\"\"")
+}
+
+fn sqlite_value_ref_to_json(value: SqliteValueRef<'_>) -> JsonValue {
+    match value {
+        SqliteValueRef::Null => JsonValue::Null,
+        SqliteValueRef::Integer(value) => JsonValue::Number(value.into()),
+        SqliteValueRef::Real(value) => JsonNumber::from_f64(value)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        SqliteValueRef::Text(value) => JsonValue::String(String::from_utf8_lossy(value).to_string()),
+        SqliteValueRef::Blob(value) => {
+            JsonValue::Array(value.iter().copied().map(JsonValue::from).collect())
+        }
+    }
+}
+
+fn build_sqlite_params(params: Option<&[JsonValue]>) -> Vec<SqliteValue> {
+    params
+        .unwrap_or(&[])
+        .iter()
+        .map(json_to_sqlite_param)
+        .collect()
+}
+
+fn json_to_sqlite_param(value: &JsonValue) -> SqliteValue {
+    match value {
+        JsonValue::Null => SqliteValue::Null,
+        JsonValue::Bool(value) => SqliteValue::Integer(if *value { 1 } else { 0 }),
+        JsonValue::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                SqliteValue::Integer(value)
+            } else if let Some(value) = number.as_u64() {
+                if let Ok(signed) = i64::try_from(value) {
+                    SqliteValue::Integer(signed)
+                } else {
+                    SqliteValue::Text(number.to_string())
+                }
+            } else if let Some(value) = number.as_f64() {
+                SqliteValue::Real(value)
+            } else {
+                SqliteValue::Text(number.to_string())
+            }
+        }
+        JsonValue::String(value) => SqliteValue::Text(value.clone()),
+        JsonValue::Array(_) | JsonValue::Object(_) => SqliteValue::Text(value.to_string()),
+    }
 }
 
 fn mysql_row_to_json(row: MySqlRow) -> JsonValue {
@@ -1382,6 +1647,7 @@ fn looks_like_resultset_query(sql: &str) -> bool {
     normalized.starts_with("select")
         || normalized.starts_with("show")
         || normalized.starts_with("describe")
+        || normalized.starts_with("pragma")
         || normalized.starts_with("with")
         || normalized.starts_with("explain")
 }
@@ -1400,25 +1666,31 @@ fn validate_connection_input(connection: &DesktopConnectionConfig) -> Result<(),
     }
 
     match connection.dialect.as_str() {
-        "postgres" | "mysql" | "sqlserver" => {}
+        "postgres" | "mysql" | "sqlserver" | "sqlite" => {}
         _ => {
             return Err(format!(
-                "connection.dialect must be one of postgres, mysql, sqlserver. Received '{}'.",
+                "connection.dialect must be one of postgres, mysql, sqlserver, sqlite. Received '{}'.",
                 connection.dialect
             ));
         }
-    }
-
-    if connection.host.is_empty() {
-        return Err("connection.host is required".into());
     }
 
     if connection.database.is_empty() {
         return Err("connection.database is required".into());
     }
 
-    if connection.user.is_empty() {
-        return Err("connection.user is required".into());
+    if connection.dialect != "sqlite" {
+        if connection.host.is_empty() {
+            return Err("connection.host is required".into());
+        }
+
+        if connection.port == 0 {
+            return Err("connection.port must be greater than zero".into());
+        }
+
+        if connection.user.is_empty() {
+            return Err("connection.user is required".into());
+        }
     }
 
     Ok(())
@@ -1446,7 +1718,7 @@ fn load_desktop_secret(connection_id: &str) -> Result<Option<DesktopSecret>, Str
         .map_err(|error| format!("Invalid credential format for {connection_id}: {error}"))?;
 
     if parsed.kind != "desktop-tcp" {
-        return Err("Stored credentials are not for a desktop TCP connection.".into());
+        return Err("Stored credentials are not for a desktop connection.".into());
     }
 
     Ok(Some(parsed))

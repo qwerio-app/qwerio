@@ -47,6 +47,7 @@ const DESKTOP_DEFAULT_PORTS: Record<DbDialect, number> = {
   postgres: 5432,
   mysql: 3306,
   sqlserver: 1433,
+  sqlite: 0,
 };
 
 const form = reactive({
@@ -71,11 +72,19 @@ const form = reactive({
   providerUsername: "",
   providerPassword: "",
 });
+const isDesktopSqlite = computed(
+  () => !isWebRuntime && form.dialect === "sqlite",
+);
 
 watch(
   () => form.dialect,
   (nextDialect, previousDialect) => {
     if (isWebRuntime) {
+      return;
+    }
+
+    if (nextDialect === "sqlite") {
+      form.port = 0;
       return;
     }
 
@@ -130,6 +139,14 @@ async function ensureWebVaultUnlockedFor(
 
 function toConnectionTarget(): ConnectionTarget {
   if (!isWebRuntime) {
+    if (form.dialect === "sqlite") {
+      return {
+        kind: "desktop-tcp",
+        dialect: "sqlite",
+        database: form.database.trim(),
+      };
+    }
+
     return {
       kind: "desktop-tcp",
       dialect: form.dialect,
@@ -247,6 +264,12 @@ function toConnectionSecret(
   allowExistingSecret = false,
 ): ConnectionSecret | null {
   if (target.kind === "desktop-tcp") {
+    if (target.dialect === "sqlite") {
+      return {
+        kind: "desktop-tcp",
+      };
+    }
+
     return {
       kind: "desktop-tcp",
       password: form.password || undefined,
@@ -313,6 +336,10 @@ function resetForm(): void {
 
 function connectionTargetLabel(profile: ConnectionProfile): string {
   if (profile.target.kind === "desktop-tcp") {
+    if (profile.target.dialect === "sqlite") {
+      return profile.target.database;
+    }
+
     return `${profile.target.host}:${profile.target.port}/${profile.target.database}`;
   }
 
@@ -392,10 +419,17 @@ function hydrateFormFromProfile(
 
   if (profile.target.kind === "desktop-tcp") {
     form.dialect = profile.target.dialect;
-    form.host = profile.target.host;
-    form.port = profile.target.port;
     form.database = profile.target.database;
-    form.user = profile.target.user;
+
+    if (profile.target.dialect === "sqlite") {
+      form.host = "";
+      form.port = DESKTOP_DEFAULT_PORTS.sqlite;
+      form.user = "";
+    } else {
+      form.host = profile.target.host;
+      form.port = profile.target.port;
+      form.user = profile.target.user;
+    }
 
     if (secret?.kind === "desktop-tcp") {
       form.password = secret.password ?? "";
@@ -662,9 +696,9 @@ async function removeConnection(id: string): Promise<void> {
           </h2>
           <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
             Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP
-            drivers for Postgres, MySQL, and SQL Server. Web mode uses provider
-            adapters (Neon Serverless, WebSocket Proxy for Postgres, PlanetScale
-            HTTP for MySQL).
+            drivers for Postgres, MySQL, and SQL Server plus local SQLite files.
+            Web mode uses provider adapters (Neon Serverless, WebSocket Proxy
+            for Postgres, PlanetScale HTTP for MySQL).
           </p>
         </div>
 
@@ -875,38 +909,77 @@ async function removeConnection(id: string): Promise<void> {
                 <option value="postgres">Postgres</option>
                 <option value="mysql">MySQL</option>
                 <option value="sqlserver">SQL Server</option>
+                <option value="sqlite">SQLite</option>
               </select>
             </label>
 
             <template v-if="!isWebRuntime">
-              <div class="grid grid-cols-2 gap-3">
+              <template v-if="isDesktopSqlite">
                 <label class="chrome-label">
-                  <span>Hostname</span>
+                  <span>SQLite Database Path</span>
                   <input
-                    v-model="form.host"
+                    v-model="form.database"
+                    class="chrome-input mt-1"
+                    type="text"
+                    placeholder="/absolute/path/to/app.db or :memory:"
+                  />
+                </label>
+
+                <p class="mt-1 text-[11px] text-[var(--chrome-ink-dim)]">
+                  SQLite uses a local file path in desktop mode.
+                </p>
+              </template>
+
+              <template v-else>
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="chrome-label">
+                    <span>Hostname</span>
+                    <input
+                      v-model="form.host"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
+                  </label>
+
+                  <label class="chrome-label">
+                    <span>Port</span>
+                    <input
+                      v-model.number="form.port"
+                      class="chrome-input mt-1"
+                      type="number"
+                    />
+                  </label>
+                </div>
+
+                <label class="chrome-label">
+                  <span>Database</span>
+                  <input
+                    v-model="form.database"
                     class="chrome-input mt-1"
                     type="text"
                   />
                 </label>
 
-                <label class="chrome-label">
-                  <span>Port</span>
-                  <input
-                    v-model.number="form.port"
-                    class="chrome-input mt-1"
-                    type="number"
-                  />
-                </label>
-              </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="chrome-label">
+                    <span>Username</span>
+                    <input
+                      v-model="form.user"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
+                  </label>
 
-              <label class="chrome-label">
-                <span>Database</span>
-                <input
-                  v-model="form.database"
-                  class="chrome-input mt-1"
-                  type="text"
-                />
-              </label>
+                  <label class="chrome-label">
+                    <span>Password (optional)</span>
+                    <input
+                      v-model="form.password"
+                      class="chrome-input mt-1"
+                      type="password"
+                    />
+                  </label>
+                </div>
+              </template>
 
               <label class="flex items-center justify-end gap-1.5">
                 <span class="text-[11px] text-[var(--chrome-ink-dim)]">
@@ -918,26 +991,6 @@ async function removeConnection(id: string): Promise<void> {
                   class="size-4 accent-[var(--chrome-red)]"
                 />
               </label>
-
-              <div class="grid grid-cols-2 gap-3">
-                <label class="chrome-label">
-                  <span>Username</span>
-                  <input
-                    v-model="form.user"
-                    class="chrome-input mt-1"
-                    type="text"
-                  />
-                </label>
-
-                <label class="chrome-label">
-                  <span>Password (optional)</span>
-                  <input
-                    v-model="form.password"
-                    class="chrome-input mt-1"
-                    type="password"
-                  />
-                </label>
-              </div>
             </template>
 
             <template v-else>

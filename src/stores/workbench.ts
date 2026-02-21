@@ -277,6 +277,8 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     const language =
       activeConnection?.target.dialect === "mysql"
         ? "mysql"
+        : activeConnection?.target.dialect === "sqlite"
+          ? "sqlite"
         : activeConnection?.target.dialect === "sqlserver"
           ? "transactsql"
           : "postgresql";
@@ -342,7 +344,9 @@ export const useWorkbenchStore = defineStore("workbench", () => {
             ? "select current_schema() as name"
             : activeConnection.target.dialect === "mysql"
               ? "select database() as name"
-              : "select schema_name() as name";
+              : activeConnection.target.dialect === "sqlite"
+                ? "select 'main' as name"
+                : "select schema_name() as name";
         const fallbackResult = await engine.execute({
           connectionId: activeConnection.id,
           sql: fallbackSql,
