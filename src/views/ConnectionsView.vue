@@ -718,7 +718,15 @@ function removeConnection(id: string): void {
           </p>
         </div>
 
-        <span class="chrome-pill">{{ store.profiles.length }} Saved</span>
+        <button
+          type="button"
+          class="chrome-btn inline-flex items-center gap-1 !px-2.5 !py-1.5 text-[11px]"
+          :disabled="isSubmitting || isTesting"
+          @click="openNewConnectionModal"
+        >
+          <Plus :size="13" />
+          New connection
+        </button>
       </div>
 
       <p
@@ -728,33 +736,10 @@ function removeConnection(id: string): void {
         {{ feedback }}
       </p>
 
-      <div class="mt-4">
-        <button
-          type="button"
-          class="group flex min-h-[140px] w-full flex-col justify-start gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
-          :disabled="isSubmitting || isTesting"
-          @click="openNewConnectionModal"
-        >
-          <div
-            class="inline-flex h-8 w-8 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#121824] text-[var(--chrome-red)] transition group-hover:border-[var(--chrome-red)]"
-          >
-            <Plus :size="16" />
-          </div>
-          <p
-            class="font-display text-lg font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
-          >
-            Add Connection
-          </p>
-          <p class="text-xs text-[var(--chrome-ink-dim)]">
-            Create personal or team profiles with optional plain/encrypted passwords.
-          </p>
-        </button>
-      </div>
-
       <section
         v-for="section in sections"
         :key="section.id"
-        class="mt-5"
+        class="mt-4"
       >
         <h3
           class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--chrome-ink-dim)]"

@@ -9,7 +9,7 @@ import {
   ChevronRight,
   Database,
   RefreshCcw,
-  SlidersHorizontal,
+  Settings,
   Table2,
 } from "lucide-vue-next";
 import { useAppSettingsStore } from "../../stores/app-settings";
@@ -27,7 +27,7 @@ const workbenchStore = useWorkbenchStore();
 
 const footerLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
-  { to: "/settings", label: "Settings", icon: SlidersHorizontal },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 const expandedSchemas = ref<Record<string, boolean>>({});
 const expandedSchemaGroups = ref<
@@ -43,6 +43,7 @@ const INTERNAL_SCHEMA_NAMES = new Set([
 ]);
 
 const activeConnection = computed(() => connectionsStore.activeProfile);
+const savedConnectionsCount = computed(() => connectionsStore.profiles.length);
 const activeConnectionName = computed(
   () => activeConnection.value?.name ?? "No active connection",
 );
@@ -561,9 +562,15 @@ watch(
           ]"
           @click="handleLinkNavigation(link.to)"
         >
-          <component :is="link.icon" :size="15" class="shrink-0" />
+          <component :is="link.icon" :size="20" class="shrink-0 py-0.5" />
           <span v-if="!uiStore.sidebarCollapsed" class="truncate">
             {{ link.label }}
+          </span>
+          <span
+            v-if="!uiStore.sidebarCollapsed && link.to === '/connections'"
+            class="ml-auto inline-flex min-w-5 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#141a24] px-1 py-0.5 text-[10px] font-semibold tracking-[0.05em] text-[var(--chrome-ink-dim)]"
+          >
+            {{ savedConnectionsCount }}
           </span>
         </button>
       </div>
