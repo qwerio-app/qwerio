@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   Braces,
   Cable,
+  Check,
   ChevronRight,
   Database,
   RefreshCcw,
@@ -33,6 +34,7 @@ const expandedSchemaGroups = ref<
   Record<string, Record<SidebarSchemaGroupKey, boolean>>
 >({});
 const isRefreshingSchema = ref(false);
+const isConnectionOnline = ref(false);
 const schemaLoadError = ref("");
 const INTERNAL_SCHEMA_NAMES = new Set([
   "pg_catalog",
@@ -200,12 +202,20 @@ async function refreshSchema(): Promise<void> {
     return;
   }
 
+  if (!activeConnection.value) {
+    schemaLoadError.value = "";
+    isConnectionOnline.value = false;
+    return;
+  }
+
   isRefreshingSchema.value = true;
   schemaLoadError.value = "";
 
   try {
     await workbenchStore.refreshSchema();
+    isConnectionOnline.value = true;
   } catch (error) {
+    isConnectionOnline.value = false;
     schemaLoadError.value =
       error instanceof Error ? error.message : "Failed to load schema.";
   } finally {
@@ -276,6 +286,7 @@ watch(
     if (connectionId !== previousConnectionId) {
       expandedSchemas.value = {};
       expandedSchemaGroups.value = {};
+      isConnectionOnline.value = false;
     }
 
     await refreshSchema();
@@ -365,6 +376,15 @@ watch(
               {{ activeConnectionDescription }}
             </p>
           </div>
+
+          <span
+            v-if="activeConnection && isConnectionOnline"
+            class="inline-flex size-6 shrink-0 items-center justify-center"
+            aria-label="Connection online"
+            title="Connection online"
+          >
+            <Check :size="14" class="text-[var(--chrome-green)]" />
+          </span>
 
           <button
             type="button"

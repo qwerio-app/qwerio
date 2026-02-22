@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppStatusView from "../components/status/AppStatusView.vue";
 import { useAppSettingsStore } from "../stores/app-settings";
 
 const appSettingsStore = useAppSettingsStore();
@@ -21,6 +22,8 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
 
 <template>
   <div class="qwerio-scroll flex h-full flex-col gap-2 overflow-auto">
+    <AppStatusView />
+
     <section class="panel-tight p-3">
       <h2
         class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
@@ -31,33 +34,7 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
         Configure Qwerio behavior and defaults.
       </p>
 
-      <div class="mt-3 grid gap-2 md:grid-cols-2">
-        <label
-          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
-        >
-          <span class="text-xs text-[var(--chrome-ink-dim)]"
-            >Show system status button in header</span
-          >
-          <input
-            v-model="appSettingsStore.showSystemStatusButton"
-            type="checkbox"
-            class="size-4 accent-[var(--chrome-red)]"
-          />
-        </label>
-
-        <label
-          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
-        >
-          <span class="text-xs text-[var(--chrome-ink-dim)]"
-            >Show connection status pill in header</span
-          >
-          <input
-            v-model="appSettingsStore.showConnectionStatusPill"
-            type="checkbox"
-            class="size-4 accent-[var(--chrome-red)]"
-          />
-        </label>
-
+      <div class="mt-3 grid gap-2">
         <label
           class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
         >

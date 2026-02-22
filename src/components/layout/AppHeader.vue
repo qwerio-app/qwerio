@@ -1,36 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Monitor, Plus, Square, X } from "lucide-vue-next";
+import { Minus, Plus, Square, UserRound, X } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { getRuntimeMode } from "../../core/query-engine-service";
-import { useAppSettingsStore } from "../../stores/app-settings";
 import { useAppTabsStore, type AppTab } from "../../stores/app-tabs";
-import { useConnectionsStore } from "../../stores/connections";
 import { useWorkbenchStore } from "../../stores/workbench";
-import AppStatusView from "../../views/AppStatusView.vue";
 
 const route = useRoute();
 const router = useRouter();
-const appSettingsStore = useAppSettingsStore();
 const appTabsStore = useAppTabsStore();
-const connectionsStore = useConnectionsStore();
 const workbenchStore = useWorkbenchStore();
 
 const runtimeMode = getRuntimeMode();
 const isDesktopRuntime = runtimeMode === "desktop";
 const desktopWindow = isDesktopRuntime ? getCurrentWindow() : null;
-
-const activeConnectionLabel = computed(() => {
-  return connectionsStore.activeProfile?.name ?? "none selected";
-});
-
-const activeConnectionState = computed(() =>
-  Boolean(connectionsStore.activeProfile),
-);
-
-const isSystemStatusOpen = ref(false);
-const systemStatusMenuRef = ref<HTMLElement | null>(null);
+const userAvatarUrl = ref<string | null>(null);
 
 function toQueryRoutePath(queryTabId: string): string {
   return `/query/${queryTabId}`;
@@ -142,41 +127,7 @@ async function closeWindow(): Promise<void> {
   await desktopWindow.close();
 }
 
-function toggleSystemStatusMenu(): void {
-  isSystemStatusOpen.value = !isSystemStatusOpen.value;
-}
-
-function closeSystemStatusMenu(): void {
-  isSystemStatusOpen.value = false;
-}
-
-function handleDocumentPointerDown(event: MouseEvent): void {
-  const eventTarget = event.target;
-
-  if (!(eventTarget instanceof Node)) {
-    return;
-  }
-
-  if (!systemStatusMenuRef.value?.contains(eventTarget)) {
-    closeSystemStatusMenu();
-  }
-}
-
-function handleDocumentKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") {
-    closeSystemStatusMenu();
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("mousedown", handleDocumentPointerDown);
-  document.addEventListener("keydown", handleDocumentKeydown);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("mousedown", handleDocumentPointerDown);
-  document.removeEventListener("keydown", handleDocumentKeydown);
-});
+function handleProfileButtonClick(): void {}
 
 async function activateTab(tab: AppTab): Promise<void> {
   appTabsStore.setActiveTab(tab.id);
@@ -267,44 +218,20 @@ async function closeTab(tab: AppTab): Promise<void> {
     </div>
 
     <div class="ml-auto flex shrink-0 items-center gap-2">
-      <div
-        v-if="appSettingsStore.showSystemStatusButton"
-        ref="systemStatusMenuRef"
-        class="relative"
+      <button
+        type="button"
+        class="inline-flex size-7 shrink-0 items-center justify-center rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
+        aria-label="User profile"
+        @click="handleProfileButtonClick"
       >
-        <button
-          type="button"
-          class="inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] px-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink-dim)] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
-          aria-haspopup="menu"
-          :aria-expanded="isSystemStatusOpen"
-          aria-label="Toggle System Status"
-          @click="toggleSystemStatusMenu"
-        >
-          <Monitor :size="13" />
-        </button>
-
-        <div
-          v-if="isSystemStatusOpen"
-          class="panel absolute right-0 top-[calc(100%+0.4rem)] z-30 w-[min(94vw,680px)] p-2"
-          role="menu"
-        >
-          <AppStatusView />
-        </div>
-      </div>
-
-      <div
-        v-if="appSettingsStore.showConnectionStatusPill"
-        class="hidden items-center gap-2 md:flex"
-        :data-tauri-drag-region="isDesktopRuntime ? '' : undefined"
-      >
-        <span
-          class="chrome-pill h-7"
-          :class="activeConnectionState ? 'chrome-pill-ok' : 'chrome-pill-bad'"
-        >
-          {{ activeConnectionState ? "connected" : "offline" }}:
-          {{ activeConnectionLabel }}
-        </span>
-      </div>
+        <img
+          v-if="userAvatarUrl"
+          :src="userAvatarUrl"
+          alt="User avatar"
+          class="size-5 rounded-full object-cover"
+        />
+        <UserRound v-else :size="14" class="text-[var(--chrome-ink-muted)]" />
+      </button>
 
       <span
         v-if="isDesktopRuntime"
