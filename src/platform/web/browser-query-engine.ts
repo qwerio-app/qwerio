@@ -1,6 +1,7 @@
 import type { QueryEngine } from "../../core/query-engine";
 import type { SchemaObjectMap } from "../../core/query-engine";
 import { resolveConnectionPassword } from "../../core/connection-secrets";
+import { loadValidAuthSessionFromStorage } from "../../core/auth-session";
 import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/types";
 import { NeonServerlessAdapter } from "./providers/neon-adapter";
 import { PlanetScaleAdapter } from "./providers/planetscale-adapter";
@@ -34,7 +35,7 @@ export class BrowserQueryEngine implements QueryEngine {
     }
 
     const password = await resolveConnectionPassword(connection);
-    const adapter = this.createAdapter(connection, password);
+    const adapter = await this.createAdapter(connection, password);
     this.adapters.set(connection.id, adapter);
   }
 
@@ -82,7 +83,7 @@ export class BrowserQueryEngine implements QueryEngine {
     return adapter.listSchemaObjects(schema);
   }
 
-  private createAdapter(connection: ConnectionProfile, password?: string): ProviderAdapter {
+  private async createAdapter(connection: ConnectionProfile, password?: string): Promise<ProviderAdapter> {
     if (connection.target.kind !== "web-provider") {
       throw new Error("Connection profile kind mismatch.");
     }
@@ -98,12 +99,21 @@ export class BrowserQueryEngine implements QueryEngine {
         );
       }
       case "proxy": {
+        const session = await loadValidAuthSessionFromStorage();
+
+        if (!session) {
+          throw new Error(
+            "Sign in is required for Proxy provider connections. Use the login button in the header and try again.",
+          );
+        }
+
         return new ProxyAdapter(
           withConnectionStringPassword(
             connection.target.connectionStringTemplate,
             password,
           ),
           connection.target.endpoint,
+          session.accessToken,
         );
       }
       case "planetscale": {

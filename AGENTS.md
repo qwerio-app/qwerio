@@ -14,6 +14,14 @@
 - `src/components/` holds reusable UI by area (`layout/`, `security/`, `workbench/`), while pages live in `src/views/`.
 - `src/stores/` contains Pinia stores, `src/router/` defines routes, and shared logic lives in `src/core/` and `src/lib/`.
 - Browser persistence is centralized in `src/core/storage/indexed-db.ts` (Dexie + IndexedDB).
+- Auth/login-specific frontend modules live in:
+  - `src/components/layout/AppHeader.vue` (login/profile menu trigger and UX).
+  - `src/stores/auth.ts` (auth session state and login actions).
+  - `src/core/auth-api.ts` (Nest auth HTTP API client).
+  - `src/core/auth-session.ts` + `src/core/auth-types.ts` (JWT session persistence/types).
+- Connection password helpers live in:
+  - `src/core/secret-vault.ts` (PIN unlock state + per-record encrypt/decrypt).
+  - `src/core/connection-secrets.ts` (resolve password from plain/encrypted/none).
 - Runtime-specific query adapters live in `src/platform/desktop/` and `src/platform/web/`.
 - Desktop backend code is in `src-tauri/src/` (Rust + Tauri commands).
 - Static assets are in `public/`; build outputs are `dist/` and `src-tauri/target/`.
@@ -25,28 +33,51 @@
   - Browser engine accepts only `web-provider` profiles.
 - Do not add browser fallbacks that attempt direct Postgres/MySQL/SQL Server sockets.
 - Keep provider adapters isolated per provider.
+- Proxy web-provider flows require authenticated JWT sessions; do not add unauthenticated proxy fallbacks.
 
 ## Storage Architecture Rules
 
 - Use Dexie/IndexedDB for browser app persistence; do not use `useStorage()` or raw `localStorage` for app state.
 - Keep the IndexedDB schema in `src/core/storage/indexed-db.ts` as the single source of truth.
 - Current app database structure:
-  - `connections`: persisted `ConnectionProfile` metadata and ordering.
+  - `connections`: persisted `ConnectionProfile` records and ordering.
   - `tabs`: unified tab records across scopes (`workbench`, `app`) with `type` limited to `query` or `table`.
   - `settings`: persisted UI/settings flags and templates.
-  - `variables`: persisted singleton-like values (for example active tab IDs and vault envelope metadata).
+  - `variables`: persisted singleton-like values (for example active tab IDs, active connection id, and auth session values).
 - For app tabs, persist table/page-style tabs as `type: "table"` (never `type: "page"`).
 - Persist only one global active app tab variable (`variables.appTabs.activeTabId`) as the source of truth for active tab state.
+- Persist auth JWT session state under `variables.auth.session` (access token, expiry, and user payload).
+- Do not store auth JWT in `localStorage`; keep browser persistence in IndexedDB (`variables` table).
 - Do not add backward-compatibility code for legacy localStorage keys unless explicitly requested.
+
+## Authentication and Login Rules
+
+- Login entrypoint is the user/profile button in `src/components/layout/AppHeader.vue`.
+- Backend integration targets the Nest API app at `/home/sergio/workspace/qwerio-api`.
+- Supported login methods:
+  - GitHub OAuth via `GET /auth/github` and callback token handling.
+  - Email OTP via:
+    - `POST /auth/email/request-otp` (email only).
+    - `POST /auth/email/verify-otp` (email + 6-digit numeric OTP).
+- Validate OTP as exactly 6 numeric digits in UI before verify requests.
+- Use `GET /auth/me` with Bearer token to validate/hydrate stored sessions.
+- Default frontend auth base URL is `/api` (Vite dev proxy to `http://localhost:3000`), overridable via `VITE_QWERIO_API_BASE_URL`.
+- For GitHub callback flows, consume `accessToken` and `expiresAt` URL params, then strip them from the browser URL after hydration.
 
 ## Current Connection and Provider Model
 
+- `ConnectionProfile` includes:
+  - `type`: `"personal"` or `"team"` (UI renders separate sections; hide empty sections).
+  - `target`: runtime/provider config.
+  - `credentials`: password storage mode (`none`, `plain`, `encrypted`).
 - Supported `ConnectionTarget` providers:
   - `desktop-tcp` for desktop (`dialect` supports `postgres`, `mysql`, `sqlserver`, `sqlite`).
     - For `sqlite`, use file-path style config with `database` only (no host/port/user).
   - `web-provider` `neon` (Postgres).
   - `web-provider` `proxy` (Postgres via proxy adapter).
   - `web-provider` `planetscale` (MySQL HTTP).
+- For Postgres web providers (`neon`, `proxy`), persist `connectionStringTemplate` without password.
+- For PlanetScale web provider, persist `username` in target and treat password via `credentials`.
 - For Neon/local Postgres web flows, support wsproxy-style endpoints (for example `localhost:6543`).
 - Preserve both Postgres input modes in UI:
   - Connection string.
@@ -54,13 +85,14 @@
 
 ## Secrets and Security Rules
 
-- `ConnectionProfile` stores metadata only. Never store plaintext credentials there.
-- `ConnectionSecret` stores credentials and must stay type-aligned with the profile target/provider.
-- Desktop secret storage must go through Tauri commands (`secret_store`, `secret_load`, `secret_delete`).
-- SQLite desktop secrets should remain empty metadata-only payloads (no password field required).
-- Web secrets must stay in encrypted vault flow (`src/core/secret-vault.ts`) and require unlock before use.
-- Web vault envelope metadata is persisted in IndexedDB (`variables` table) under the existing vault key.
-- On failure to save secret after creating/updating a profile, roll back profile changes where applicable.
+- Password storage is record-level inside `ConnectionProfile.credentials`:
+  - `storage: "none"`: no saved password; ask on connect and keep session-only.
+  - `storage: "plain"`: store password as plaintext in the record.
+  - `storage: "encrypted"`: store password as per-record envelope (`salt`, `iv`, `ciphertext`).
+- PIN state is in-memory only; do not persist global vault envelopes or decrypted payloads.
+- Request PIN only when opening an encrypted connection (not globally on startup).
+- Desktop backend reads optional password from `db_connect` payload; do not reintroduce keyring secret commands for connection passwords.
+- Treat JWT access tokens as sensitive secrets; never log raw token values.
 - Never log raw passwords, connection strings, or decrypted secret payloads.
 
 ## Error Handling Rules
@@ -105,10 +137,11 @@
 - Add e2e specs as `*.spec.ts` under `e2e/`.
 - Prioritize coverage for:
   - Connection profile validation and store behavior.
+  - Connection type grouping (`personal`/`team`) and section visibility behavior.
   - Dexie persistence behavior for `connections`, `tabs`, `settings`, and `variables`.
   - Query-engine runtime routing (desktop vs web).
   - Provider adapter error handling and schema/query flows.
-  - Vault unlock/lock behavior and secure secret reads/writes.
+  - Password resolution flow for `none`/`plain`/`encrypted`, including PIN-required errors.
 
 ## Change Workflow
 
@@ -119,8 +152,17 @@
     - TCP drivers (Postgres, MySQL, SQL Server).
     - SQLite file path (`dialect: "sqlite"`).
   - Web Neon/proxy connect + query.
-  - Web vault locked/unlocked paths.
-  - Edit existing connection without secret/profile mismatch.
+  - Auth flows:
+    - GitHub login redirect + callback token hydration.
+    - Email OTP request + 6-digit verify.
+    - Session restoration from IndexedDB `variables.auth.session`.
+  - `credentials.storage` modes:
+    - `none` prompts for password when needed.
+    - `plain` connects without PIN prompt.
+    - `encrypted` prompts for PIN only when accessed.
+  - Refresh/hydration paths:
+    - Active connection restoration should not trigger unrelated PIN prompts.
+    - Table tabs should load after hydration without false "Object tab not found" errors.
 
 ## Commit and Pull Request Guidelines
 
