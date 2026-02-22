@@ -1,5 +1,6 @@
 import type { QueryEngine } from "../../core/query-engine";
 import type { SchemaObjectMap } from "../../core/query-engine";
+import { resolveConnectionPassword } from "../../core/connection-secrets";
 import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/types";
 
 async function tauriInvoke<T>(command: string, payload: Record<string, unknown>): Promise<T> {
@@ -13,10 +14,12 @@ export class TauriQueryEngine implements QueryEngine {
       throw new Error("Desktop runtime requires a desktop-tcp connection profile.");
     }
 
+    const password = await resolveConnectionPassword(connection);
     const baseConnection = {
       id: connection.id,
       dialect: connection.target.dialect,
       database: connection.target.database,
+      password,
     };
 
     await tauriInvoke<void>("db_connect", {

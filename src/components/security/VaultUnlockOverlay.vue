@@ -39,8 +39,8 @@ async function unlockVault(): Promise<void> {
       error instanceof Error
         ? error.message
         : isInitializingVault.value
-          ? "Unable to initialize web secret vault."
-          : "Unable to unlock web secret vault.";
+          ? "Unable to initialize encrypted password PIN."
+          : "Unable to unlock encrypted password PIN.";
   } finally {
     isSubmitting.value = false;
   }
@@ -76,8 +76,8 @@ watch(pin, (value, previousValue) => {
       <p class="mt-2 text-xs text-[var(--chrome-ink-dim)]">
         {{
           isInitializingVault
-            ? "Create a 5-digit PIN to initialize encrypted connection credentials."
-            : "Enter your 5-digit PIN to unlock encrypted connection credentials."
+            ? "Create a 5-digit PIN to initialize encrypted connection passwords."
+            : "Enter your 5-digit PIN to unlock encrypted connection passwords."
         }}
       </p>
 
@@ -87,7 +87,7 @@ watch(pin, (value, previousValue) => {
       >
         <VaultPinInput
           v-model="pin"
-          :label="isInitializingVault ? 'Create vault PIN' : 'Unlock vault PIN'"
+          :label="isInitializingVault ? 'Create connection PIN' : 'Unlock connection PIN'"
           :disabled="isSubmitting"
           :autofocus="true"
         />

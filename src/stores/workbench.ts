@@ -3,9 +3,11 @@ import { defineStore } from "pinia";
 import { format } from "sql-formatter";
 import { getQueryEngine } from "../core/query-engine-service";
 import { createEmptySchemaObjectMap, type SchemaObjectMap } from "../core/query-engine";
+import { SecretPinRequiredError } from "../core/secret-vault";
 import type { QueryResult } from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
+import { useVaultStore } from "./vault";
 import { createNanoId } from "../core/nano-id";
 import {
   loadWorkbenchTabsFromStorage,
@@ -315,6 +317,11 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
       resultByTabId.value[tab.id] = result;
     } catch (error) {
+      if (error instanceof SecretPinRequiredError) {
+        const vaultStore = useVaultStore();
+        vaultStore.requestUnlockPrompt(error.envelope);
+      }
+
       errorMessage.value =
         error instanceof Error ? error.message : "Query execution failed. Check your connection and SQL.";
     } finally {
@@ -333,56 +340,66 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       return;
     }
 
-    const engine = getQueryEngine();
-    await engine.connect(activeConnection);
-    let schemas = await engine.listSchemas(activeConnection.id);
+    try {
+      const engine = getQueryEngine();
+      await engine.connect(activeConnection);
+      let schemas = await engine.listSchemas(activeConnection.id);
 
-    if (schemas.length === 0) {
-      try {
-        const fallbackSql =
-          activeConnection.target.dialect === "postgres"
-            ? "select current_schema() as name"
-            : activeConnection.target.dialect === "mysql"
-              ? "select database() as name"
-              : activeConnection.target.dialect === "sqlite"
-                ? "select 'main' as name"
-                : "select schema_name() as name";
-        const fallbackResult = await engine.execute({
-          connectionId: activeConnection.id,
-          sql: fallbackSql,
-        });
-        const fallbackName = String(fallbackResult.rows[0]?.name ?? "").trim();
+      if (schemas.length === 0) {
+        try {
+          const fallbackSql =
+            activeConnection.target.dialect === "postgres"
+              ? "select current_schema() as name"
+              : activeConnection.target.dialect === "mysql"
+                ? "select database() as name"
+                : activeConnection.target.dialect === "sqlite"
+                  ? "select 'main' as name"
+                  : "select schema_name() as name";
+          const fallbackResult = await engine.execute({
+            connectionId: activeConnection.id,
+            sql: fallbackSql,
+          });
+          const fallbackName = String(fallbackResult.rows[0]?.name ?? "").trim();
 
-        if (fallbackName.length > 0) {
-          schemas = [{ name: fallbackName }];
+          if (fallbackName.length > 0) {
+            schemas = [{ name: fallbackName }];
+          }
+        } catch {
+          // Keep empty schema list when fallback lookup is unavailable.
         }
-      } catch {
-        // Keep empty schema list when fallback lookup is unavailable.
       }
+
+      schemaNames.value = schemas;
+
+      const nextMap: TableMap = {};
+      const nextObjectMap: SchemaObjectsBySchema = {};
+
+      await Promise.all(
+        schemas.map(async (schema) => {
+          const objects = await engine.listSchemaObjects(activeConnection.id, schema.name);
+          nextMap[schema.name] = objects.tables;
+          nextObjectMap[schema.name] = {
+            ...createEmptySchemaObjectMap(),
+            ...objects,
+          };
+        }),
+      );
+
+      tableMap.value = nextMap;
+      schemaObjectMap.value = nextObjectMap;
+    } catch (error) {
+      if (error instanceof SecretPinRequiredError) {
+        const vaultStore = useVaultStore();
+        vaultStore.requestUnlockPrompt(error.envelope);
+      }
+
+      throw error;
     }
-
-    schemaNames.value = schemas;
-
-    const nextMap: TableMap = {};
-    const nextObjectMap: SchemaObjectsBySchema = {};
-
-    await Promise.all(
-      schemas.map(async (schema) => {
-        const objects = await engine.listSchemaObjects(activeConnection.id, schema.name);
-        nextMap[schema.name] = objects.tables;
-        nextObjectMap[schema.name] = {
-          ...createEmptySchemaObjectMap(),
-          ...objects,
-        };
-      }),
-    );
-
-    tableMap.value = nextMap;
-    schemaObjectMap.value = nextObjectMap;
   }
 
   return {
     tabs,
+    hasHydrated,
     activeTab,
     activeTabId,
     activeResult,

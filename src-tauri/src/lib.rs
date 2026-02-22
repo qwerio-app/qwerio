@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use keyring::Entry;
 use mysql_async::prelude::Queryable;
 use mysql_async::{OptsBuilder, Pool, Row as MySqlRow, Value as MySqlValue};
 use rusqlite::types::{Value as SqliteValue, ValueRef as SqliteValueRef};
@@ -20,7 +19,6 @@ use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client as PgClient, NoTls};
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-const KEYRING_SERVICE: &str = "qwerio.credentials";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 type SqlServerClient = SqlServerRawClient<tokio_util::compat::Compat<TcpStream>>;
 
@@ -49,6 +47,8 @@ struct DesktopConnectionConfig {
     database: String,
     #[serde(default)]
     user: String,
+    #[serde(default)]
+    password: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,14 +57,6 @@ struct QueryRequest {
     connection_id: String,
     sql: String,
     params: Option<Vec<JsonValue>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DesktopSecret {
-    kind: String,
-    #[serde(default)]
-    password: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,44 +131,12 @@ impl SchemaObjectMap {
 }
 
 #[tauri::command]
-fn secret_store(connection_id: &str, secret_json: &str) -> Result<(), String> {
-    let entry = keyring_entry(connection_id)?;
-    entry
-        .set_password(secret_json)
-        .map_err(|error| format!("Failed to store credentials: {error}"))
-}
-
-#[tauri::command]
-fn secret_load(connection_id: &str) -> Result<Option<String>, String> {
-    let entry = keyring_entry(connection_id)?;
-
-    match entry.get_password() {
-        Ok(secret) => Ok(Some(secret)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to load credentials: {error}")),
-    }
-}
-
-#[tauri::command]
-fn secret_delete(connection_id: &str) -> Result<(), String> {
-    let entry = keyring_entry(connection_id)?;
-
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to delete credentials: {error}")),
-    }
-}
-
-#[tauri::command]
 async fn db_connect(
     connection: DesktopConnectionConfig,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     validate_connection_input(&connection)?;
-    let secret = load_desktop_secret(&connection.id)?;
-    let password = secret
-        .as_ref()
-        .and_then(|stored| stored.password.as_deref());
+    let password = connection.password.as_deref();
 
     let db_connection = match connection.dialect.as_str() {
         "postgres" => {
@@ -1696,43 +1656,12 @@ fn validate_connection_input(connection: &DesktopConnectionConfig) -> Result<(),
     Ok(())
 }
 
-fn keyring_entry(connection_id: &str) -> Result<Entry, String> {
-    Entry::new(KEYRING_SERVICE, connection_id)
-        .map_err(|error| format!("Failed to initialize keyring entry: {error}"))
-}
-
-fn load_desktop_secret(connection_id: &str) -> Result<Option<DesktopSecret>, String> {
-    let entry = keyring_entry(connection_id)?;
-
-    let secret = match entry.get_password() {
-        Ok(secret) => secret,
-        Err(keyring::Error::NoEntry) => return Ok(None),
-        Err(error) => {
-            return Err(format!(
-                "Unable to read credentials for {connection_id}: {error}"
-            ))
-        }
-    };
-
-    let parsed = serde_json::from_str::<DesktopSecret>(&secret)
-        .map_err(|error| format!("Invalid credential format for {connection_id}: {error}"))?;
-
-    if parsed.kind != "desktop-tcp" {
-        return Err("Stored credentials are not for a desktop connection.".into());
-    }
-
-    Ok(Some(parsed))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            secret_store,
-            secret_load,
-            secret_delete,
             db_connect,
             db_execute,
             db_cancel,

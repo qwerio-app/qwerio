@@ -10,15 +10,16 @@ import {
   Trash2,
   X,
 } from "lucide-vue-next";
-import {
-  deleteConnectionSecret,
-  loadConnectionSecret,
-  storeConnectionSecret,
-} from "../core/secret-vault";
+import { clearSessionConnectionPassword } from "../core/connection-secrets";
 import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
+import {
+  encryptConnectionPassword,
+  SecretPinRequiredError,
+} from "../core/secret-vault";
 import type {
+  ConnectionCredentials,
   ConnectionProfile,
-  ConnectionSecret,
+  ConnectionProfileType,
   ConnectionTarget,
   DbDialect,
 } from "../core/types";
@@ -27,19 +28,35 @@ import { useVaultStore } from "../stores/vault";
 
 const TEST_CONNECTION_ID = "qwerio-connection-test";
 
+type PasswordStorageMode = "none" | "plain" | "encrypted";
+
+type TargetWithPassword = {
+  target: ConnectionTarget;
+  password?: string;
+};
+
 const store = useConnectionsStore();
+const vaultStore = useVaultStore();
 
 const feedback = ref("");
 const isSubmitting = ref(false);
 const isTesting = ref(false);
 const runtimeMode = getRuntimeMode();
 const isWebRuntime = runtimeMode === "web";
-const vaultStore = useVaultStore();
 const isModalOpen = ref(false);
 const editingConnectionId = ref<string | null>(null);
-const editingSecret = ref<ConnectionSecret | null>(null);
 
 const isEditing = computed(() => Boolean(editingConnectionId.value));
+const editingProfile = computed<ConnectionProfile | null>(() => {
+  if (!editingConnectionId.value) {
+    return null;
+  }
+
+  return (
+    store.profiles.find((profile) => profile.id === editingConnectionId.value) ??
+    null
+  );
+});
 const modalTitle = computed(() =>
   isEditing.value ? "Edit Connection" : "New Connection",
 );
@@ -52,7 +69,9 @@ const DESKTOP_DEFAULT_PORTS: Record<DbDialect, number> = {
 
 const form = reactive({
   name: "",
+  connectionType: "personal" as ConnectionProfileType,
   showInternalSchemas: false,
+  passwordStorage: "encrypted" as PasswordStorageMode,
   dialect: "postgres" as DbDialect,
   host: "",
   port: DESKTOP_DEFAULT_PORTS.postgres,
@@ -70,11 +89,41 @@ const form = reactive({
   projectId: "",
   connectionString: "",
   providerUsername: "",
-  providerPassword: "",
 });
+
+const sections = computed(() => {
+  const personalProfiles = store.profiles.filter(
+    (profile) => profile.type === "personal",
+  );
+  const teamProfiles = store.profiles.filter(
+    (profile) => profile.type === "team",
+  );
+
+  return [
+    {
+      id: "personal",
+      label: "Personal",
+      profiles: personalProfiles,
+    },
+    {
+      id: "team",
+      label: "Team",
+      profiles: teamProfiles,
+    },
+  ].filter((section) => section.profiles.length > 0);
+});
+
 const isDesktopSqlite = computed(
   () => !isWebRuntime && form.dialect === "sqlite",
 );
+
+const shouldShowPasswordStorage = computed(() => {
+  if (isDesktopSqlite.value) {
+    return false;
+  }
+
+  return true;
+});
 
 watch(
   () => form.dialect,
@@ -103,78 +152,35 @@ watch(
   },
 );
 
-async function refreshVaultStatus(): Promise<void> {
-  await vaultStore.refreshStatus();
-}
-
-async function ensureWebVaultUnlockedFor(
-  action: "save" | "test",
-): Promise<boolean> {
-  if (!isWebRuntime) {
-    return true;
-  }
-
-  await refreshVaultStatus();
-
-  if (vaultStore.status.unlocked) {
-    return true;
-  }
-
-  vaultStore.requestUnlockPrompt();
-
-  if (!vaultStore.status.initialized) {
-    feedback.value =
-      action === "save"
-        ? "Create a 5-digit vault PIN to initialize encrypted web credentials before saving this connection."
-        : "Create a 5-digit vault PIN to initialize encrypted web credentials before testing this connection.";
-    return false;
-  }
-
-  feedback.value =
-    action === "save"
-      ? "Unlock the web secret vault before saving web connections."
-      : "Unlock the web secret vault before testing web connections.";
-  return false;
-}
-
-function toConnectionTarget(): ConnectionTarget {
-  if (!isWebRuntime) {
-    if (form.dialect === "sqlite") {
-      return {
-        kind: "desktop-tcp",
-        dialect: "sqlite",
-        database: form.database.trim(),
-      };
+function connectionTargetLabel(profile: ConnectionProfile): string {
+  if (profile.target.kind === "desktop-tcp") {
+    if (profile.target.dialect === "sqlite") {
+      return profile.target.database;
     }
 
-    return {
-      kind: "desktop-tcp",
-      dialect: form.dialect,
-      host: form.host,
-      port: Number(form.port),
-      database: form.database,
-      user: form.user,
-    };
+    return `${profile.target.host}:${profile.target.port}/${profile.target.database}`;
   }
 
-  if (form.provider === "planetscale") {
-    return {
-      kind: "web-provider",
-      dialect: "mysql",
-      provider: "planetscale",
-      endpoint: form.endpoint.trim(),
-      projectId: form.projectId || undefined,
-    };
+  if (profile.target.provider === "planetscale") {
+    return `${profile.target.provider} · ${profile.target.endpoint} · ${profile.target.username}`;
   }
 
-  return {
-    kind: "web-provider",
-    dialect: "postgres",
-    provider: form.provider,
-    endpoint:
-      form.provider === "proxy" ? form.endpoint.trim() || "default" : "default",
-    projectId: form.projectId || undefined,
-  };
+  return `${profile.target.provider} · ${profile.target.endpoint}`;
+}
+
+function connectionCredentialLabel(profile: ConnectionProfile): string {
+  switch (profile.credentials.storage) {
+    case "encrypted":
+      return "Encrypted password";
+    case "plain":
+      return "Plain-text password";
+    case "none":
+      return "No saved password";
+    default: {
+      const exhaustiveCheck: never = profile.credentials;
+      return JSON.stringify(exhaustiveCheck);
+    }
+  }
 }
 
 function toUrlHost(rawHost: string, port: number): string {
@@ -192,7 +198,43 @@ function toUrlHost(rawHost: string, port: number): string {
   return `${hostWithoutPort}:${port}`;
 }
 
-function buildPostgresConnectionStringFromFields(): string | null {
+function parsePostgresConnectionStringTemplate(
+  rawConnectionString: string,
+): { template: string; password?: string } | null {
+  let url: URL;
+
+  try {
+    url = new URL(rawConnectionString.trim());
+  } catch {
+    feedback.value = "Postgres connection string is invalid.";
+    return null;
+  }
+
+  if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+    feedback.value =
+      "Postgres connection string must start with postgres:// or postgresql://.";
+    return null;
+  }
+
+  if (!url.hostname || !url.username || !url.pathname.replace(/^\/+/, "")) {
+    feedback.value =
+      "Postgres connection string must include host, username, and database.";
+    return null;
+  }
+
+  const extractedPassword = decodeURIComponent(url.password || "");
+  url.password = "";
+
+  return {
+    template: url.toString(),
+    password: extractedPassword || undefined,
+  };
+}
+
+function buildPostgresConnectionTemplateFromFields(): {
+  template: string;
+  password?: string;
+} | null {
   const host = form.host.trim();
   const database = form.database.trim();
   const user = form.user.trim();
@@ -211,114 +253,181 @@ function buildPostgresConnectionStringFromFields(): string | null {
 
   const url = new URL("postgresql://localhost");
   url.username = user;
-  url.password = form.password;
+  url.password = "";
   url.host = toUrlHost(host, port);
   url.pathname = `/${database}`;
 
-  return url.toString();
+  return {
+    template: url.toString(),
+    password: form.password || undefined,
+  };
 }
 
-function resolvePostgresConnectionString(
-  provider: "neon" | "proxy",
-  allowExistingSecret = false,
-): string | null {
+function resolvePostgresTemplateAndPassword(): {
+  template: string;
+  password?: string;
+} | null {
   if (form.neonInputMode === "connection-string") {
-    if (form.connectionString.trim()) {
-      return form.connectionString.trim();
+    if (!form.connectionString.trim()) {
+      feedback.value = "Postgres connection string is required.";
+      return null;
     }
 
-    if (
-      allowExistingSecret &&
-      editingSecret.value?.kind === "web-provider" &&
-      (editingSecret.value.provider === provider ||
-        (provider === "proxy" && editingSecret.value.provider === "neon"))
-    ) {
-      return editingSecret.value.connectionString;
+    const parsed = parsePostgresConnectionStringTemplate(form.connectionString);
+
+    if (!parsed) {
+      return null;
     }
 
-    feedback.value = "Postgres connection string is required.";
-    return null;
+    return {
+      template: parsed.template,
+      password: form.password || parsed.password,
+    };
   }
 
-  const connectionString = buildPostgresConnectionStringFromFields();
-
-  if (connectionString) {
-    return connectionString;
-  }
-
-  if (
-    allowExistingSecret &&
-    editingSecret.value?.kind === "web-provider" &&
-    (editingSecret.value.provider === provider ||
-      (provider === "proxy" && editingSecret.value.provider === "neon"))
-  ) {
-    feedback.value = "";
-    return editingSecret.value.connectionString;
-  }
-
-  return null;
+  return buildPostgresConnectionTemplateFromFields();
 }
 
-function toConnectionSecret(
-  target: ConnectionTarget,
-  allowExistingSecret = false,
-): ConnectionSecret | null {
-  if (target.kind === "desktop-tcp") {
-    if (target.dialect === "sqlite") {
+function toConnectionTargetAndPassword(): TargetWithPassword | null {
+  if (!isWebRuntime) {
+    if (form.dialect === "sqlite") {
       return {
-        kind: "desktop-tcp",
+        target: {
+          kind: "desktop-tcp",
+          dialect: "sqlite",
+          database: form.database.trim(),
+        },
       };
     }
 
     return {
-      kind: "desktop-tcp",
+      target: {
+        kind: "desktop-tcp",
+        dialect: form.dialect,
+        host: form.host,
+        port: Number(form.port),
+        database: form.database,
+        user: form.user,
+      },
       password: form.password || undefined,
     };
   }
 
-  if (target.provider === "planetscale") {
-    if (form.providerUsername && form.providerPassword) {
-      return {
+  if (form.provider === "planetscale") {
+    if (!form.providerUsername.trim()) {
+      feedback.value = "PlanetScale username is required.";
+      return null;
+    }
+
+    return {
+      target: {
         kind: "web-provider",
+        dialect: "mysql",
         provider: "planetscale",
-        username: form.providerUsername,
-        password: form.providerPassword,
-      };
-    }
-
-    if (
-      allowExistingSecret &&
-      editingSecret.value?.kind === "web-provider" &&
-      editingSecret.value.provider === "planetscale"
-    ) {
-      return editingSecret.value;
-    }
-
-    feedback.value = "PlanetScale username and password are required.";
-    return null;
+        endpoint: form.endpoint.trim(),
+        username: form.providerUsername.trim(),
+        projectId: form.projectId || undefined,
+      },
+      password: form.password || undefined,
+    };
   }
 
-  const connectionString = resolvePostgresConnectionString(
-    target.provider,
-    allowExistingSecret,
-  );
+  const postgres = resolvePostgresTemplateAndPassword();
 
-  if (!connectionString) {
+  if (!postgres) {
     return null;
   }
 
   return {
-    kind: "web-provider",
-    provider: target.provider,
-    connectionString,
+    target: {
+      kind: "web-provider",
+      dialect: "postgres",
+      provider: form.provider,
+      endpoint:
+        form.provider === "proxy" ? form.endpoint.trim() || "default" : "default",
+      connectionStringTemplate: postgres.template,
+      projectId: form.projectId || undefined,
+    },
+    password: postgres.password,
+  };
+}
+
+async function ensurePinUnlockedFor(action: "save" | "test"): Promise<boolean> {
+  await vaultStore.refreshStatus();
+
+  if (vaultStore.status.unlocked) {
+    return true;
+  }
+
+  vaultStore.requestUnlockPrompt();
+  feedback.value = vaultStore.status.initialized
+    ? action === "save"
+      ? "Unlock your 5-digit PIN before saving an encrypted password."
+      : "Unlock your 5-digit PIN before testing with an encrypted password."
+    : action === "save"
+      ? "Create a 5-digit PIN before saving an encrypted password."
+      : "Create a 5-digit PIN before testing with an encrypted password.";
+
+  return false;
+}
+
+async function resolveCredentials(
+  passwordInput: string | undefined,
+  supportsPassword: boolean,
+  action: "save" | "test",
+): Promise<ConnectionCredentials | null> {
+  if (!supportsPassword) {
+    return {
+      storage: "none",
+    };
+  }
+
+  const existingCredentials = editingProfile.value?.credentials ?? null;
+  const hasPasswordInput = typeof passwordInput === "string" && passwordInput.length > 0;
+
+  if (!hasPasswordInput) {
+    if (
+      existingCredentials &&
+      existingCredentials.storage === form.passwordStorage &&
+      form.passwordStorage !== "none"
+    ) {
+      return existingCredentials;
+    }
+
+    return {
+      storage: "none",
+    };
+  }
+
+  if (form.passwordStorage === "none") {
+    return {
+      storage: "none",
+    };
+  }
+
+  if (form.passwordStorage === "plain") {
+    return {
+      storage: "plain",
+      password: passwordInput,
+    };
+  }
+
+  if (!(await ensurePinUnlockedFor(action))) {
+    return null;
+  }
+
+  return {
+    storage: "encrypted",
+    envelope: await encryptConnectionPassword(passwordInput),
   };
 }
 
 function resetForm(): void {
   editingConnectionId.value = null;
-  editingSecret.value = null;
   form.name = "";
+  form.connectionType = "personal";
   form.showInternalSchemas = false;
+  form.passwordStorage = "encrypted";
   form.dialect = "postgres";
   form.host = "";
   form.port = DESKTOP_DEFAULT_PORTS.postgres;
@@ -331,22 +440,6 @@ function resetForm(): void {
   form.projectId = "";
   form.connectionString = "";
   form.providerUsername = "";
-  form.providerPassword = "";
-}
-
-function connectionTargetLabel(profile: ConnectionProfile): string {
-  if (profile.target.kind === "desktop-tcp") {
-    if (profile.target.dialect === "sqlite") {
-      return profile.target.database;
-    }
-
-    return `${profile.target.host}:${profile.target.port}/${profile.target.database}`;
-  }
-
-  const endpoint = profile.target.endpoint.trim();
-  return endpoint
-    ? `${profile.target.provider} · ${endpoint}`
-    : profile.target.provider;
 }
 
 function openNewConnectionModal(): void {
@@ -365,9 +458,11 @@ function closeConnectionModal(): void {
   resetForm();
 }
 
-function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
+function hydrateNeonFieldsFromConnectionStringTemplate(
+  connectionStringTemplate: string,
+): void {
   try {
-    const url = new URL(connectionString);
+    const url = new URL(connectionStringTemplate);
     const database = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
 
     if (
@@ -384,38 +479,34 @@ function hydrateNeonFieldsFromConnectionString(connectionString: string): void {
     form.port = url.port ? Number(url.port) : 5432;
     form.database = database;
     form.user = decodeURIComponent(url.username);
-    form.password = decodeURIComponent(url.password);
     form.connectionString = "";
     return;
   } catch {
     form.neonInputMode = "connection-string";
-    form.connectionString = connectionString;
+    form.connectionString = connectionStringTemplate;
     form.host = "";
     form.port = DESKTOP_DEFAULT_PORTS.postgres;
     form.database = "";
     form.user = "";
-    form.password = "";
   }
 }
 
-function hydrateFormFromProfile(
-  profile: ConnectionProfile,
-  secret: ConnectionSecret | null,
-): void {
+function hydrateFormFromProfile(profile: ConnectionProfile): void {
   form.name = profile.name;
+  form.connectionType = profile.type;
   form.showInternalSchemas = Boolean(profile.showInternalSchemas);
+  form.passwordStorage = profile.credentials.storage;
   form.host = "";
   form.port = DESKTOP_DEFAULT_PORTS.postgres;
   form.database = "";
   form.user = "";
-  form.password = "";
+  form.password = profile.credentials.storage === "plain" ? profile.credentials.password : "";
   form.provider = "neon";
   form.neonInputMode = "connection-details";
   form.endpoint = "";
   form.projectId = "";
   form.connectionString = "";
   form.providerUsername = "";
-  form.providerPassword = "";
 
   if (profile.target.kind === "desktop-tcp") {
     form.dialect = profile.target.dialect;
@@ -431,101 +522,59 @@ function hydrateFormFromProfile(
       form.user = profile.target.user;
     }
 
-    if (secret?.kind === "desktop-tcp") {
-      form.password = secret.password ?? "";
-    }
-
     return;
   }
 
   form.dialect = profile.target.dialect;
-  const shouldMigrateLegacyNeonProxy =
-    profile.target.provider === "neon" &&
-    profile.target.endpoint.trim() !== "" &&
-    profile.target.endpoint !== "default" &&
-    profile.target.endpoint !== "neon-http";
-
-  form.provider = shouldMigrateLegacyNeonProxy
-    ? "proxy"
-    : profile.target.provider;
+  form.provider = profile.target.provider;
   form.endpoint = profile.target.endpoint;
   form.projectId = profile.target.projectId ?? "";
 
   if (profile.target.provider === "planetscale") {
-    if (secret?.kind === "web-provider" && secret.provider === "planetscale") {
-      form.providerUsername = secret.username;
-      form.providerPassword = secret.password;
-    }
-
+    form.providerUsername = profile.target.username;
     return;
   }
 
-  if (
-    secret?.kind === "web-provider" &&
-    secret.provider === profile.target.provider &&
-    (secret.provider === "neon" || secret.provider === "proxy")
-  ) {
-    hydrateNeonFieldsFromConnectionString(secret.connectionString);
-  }
+  hydrateNeonFieldsFromConnectionStringTemplate(
+    profile.target.connectionStringTemplate,
+  );
 }
 
-async function startEditConnection(connectionId: string): Promise<boolean> {
+function openEditConnectionModal(connectionId: string): void {
   feedback.value = "";
   const profile = store.profiles.find((item) => item.id === connectionId);
 
   if (!profile) {
     feedback.value = "Connection profile not found.";
-    return false;
-  }
-
-  editingConnectionId.value = profile.id;
-  editingSecret.value = null;
-  hydrateFormFromProfile(profile, null);
-
-  try {
-    const secret = await loadConnectionSecret(profile.id);
-    editingSecret.value = secret;
-    hydrateFormFromProfile(profile, secret);
-
-    if (!secret) {
-      feedback.value =
-        "No credentials found. Enter credentials and save to restore this profile.";
-    }
-  } catch (error) {
-    feedback.value =
-      error instanceof Error
-        ? `${error.message} Enter credentials and save to update this profile.`
-        : "Unable to load stored credentials. Enter credentials and save to update this profile.";
-  }
-
-  return true;
-}
-
-async function openEditConnectionModal(connectionId: string): Promise<void> {
-  if (!(await startEditConnection(connectionId))) {
     return;
   }
 
+  editingConnectionId.value = profile.id;
+  hydrateFormFromProfile(profile);
   isModalOpen.value = true;
 }
 
 async function testConnection(): Promise<void> {
   feedback.value = "";
   isTesting.value = true;
-  let shouldDeleteTestSecret = false;
 
   try {
-    const target = toConnectionTarget();
-    const secret = toConnectionSecret(target, isEditing.value);
+    const targetWithPassword = toConnectionTargetAndPassword();
 
-    if (!secret) {
+    if (!targetWithPassword) {
       return;
     }
 
-    if (
-      target.kind === "web-provider" &&
-      !(await ensureWebVaultUnlockedFor("test"))
-    ) {
+    const credentials = await resolveCredentials(
+      targetWithPassword.password,
+      !(
+        targetWithPassword.target.kind === "desktop-tcp" &&
+        targetWithPassword.target.dialect === "sqlite"
+      ),
+      "test",
+    );
+
+    if (!credentials) {
       return;
     }
 
@@ -533,14 +582,13 @@ async function testConnection(): Promise<void> {
     const testProfile: ConnectionProfile = {
       id: TEST_CONNECTION_ID,
       name: form.name.trim() || "Connection Test",
-      target,
+      type: form.connectionType,
+      target: targetWithPassword.target,
+      credentials,
       showInternalSchemas: Boolean(form.showInternalSchemas),
       createdAt: now,
       updatedAt: now,
     };
-
-    await storeConnectionSecret(TEST_CONNECTION_ID, secret);
-    shouldDeleteTestSecret = true;
 
     const engine = getQueryEngine();
     await engine.connect(testProfile);
@@ -551,17 +599,13 @@ async function testConnection(): Promise<void> {
 
     feedback.value = "Connection test succeeded.";
   } catch (error) {
+    if (error instanceof SecretPinRequiredError) {
+      vaultStore.requestUnlockPrompt(error.envelope);
+    }
+
     feedback.value =
       error instanceof Error ? error.message : "Connection test failed.";
   } finally {
-    if (shouldDeleteTestSecret) {
-      try {
-        await deleteConnectionSecret(TEST_CONNECTION_ID);
-      } catch {
-        // Best effort cleanup for temporary test credentials.
-      }
-    }
-
     isTesting.value = false;
   }
 }
@@ -571,41 +615,33 @@ async function submitConnection(): Promise<void> {
   isSubmitting.value = true;
 
   try {
-    const target = toConnectionTarget();
-    const secret = toConnectionSecret(target, isEditing.value);
+    const targetWithPassword = toConnectionTargetAndPassword();
 
-    if (!secret) {
+    if (!targetWithPassword) {
       return;
     }
 
-    if (
-      target.kind === "web-provider" &&
-      !(await ensureWebVaultUnlockedFor("save"))
-    ) {
+    const credentials = await resolveCredentials(
+      targetWithPassword.password,
+      !(
+        targetWithPassword.target.kind === "desktop-tcp" &&
+        targetWithPassword.target.dialect === "sqlite"
+      ),
+      "save",
+    );
+
+    if (!credentials) {
       return;
     }
 
     const editingId = editingConnectionId.value;
 
     if (editingId) {
-      const previousProfile = store.profiles.find(
-        (profile) => profile.id === editingId,
-      );
-
-      if (!previousProfile) {
-        feedback.value = "Connection profile not found.";
-        return;
-      }
-
-      const rollbackInput = {
-        name: previousProfile.name,
-        target: previousProfile.target,
-        showInternalSchemas: Boolean(previousProfile.showInternalSchemas),
-      };
-
       const updateResult = store.updateConnection(editingId, {
         name: form.name,
-        target,
+        type: form.connectionType,
+        target: targetWithPassword.target,
+        credentials,
         showInternalSchemas: form.showInternalSchemas,
       });
 
@@ -614,19 +650,9 @@ async function submitConnection(): Promise<void> {
         return;
       }
 
-      try {
-        await storeConnectionSecret(editingId, secret);
-      } catch (error) {
-        store.updateConnection(editingId, rollbackInput);
-        feedback.value =
-          error instanceof Error
-            ? error.message
-            : "Failed to store connection credentials securely.";
-        return;
-      }
-
+      clearSessionConnectionPassword(editingId);
       store.setActiveConnection(editingId);
-      feedback.value = "Connection updated with encrypted credentials.";
+      feedback.value = "Connection updated.";
       isModalOpen.value = false;
       resetForm();
       return;
@@ -634,7 +660,9 @@ async function submitConnection(): Promise<void> {
 
     const result = store.addConnection({
       name: form.name,
-      target,
+      type: form.connectionType,
+      target: targetWithPassword.target,
+      credentials,
       showInternalSchemas: form.showInternalSchemas,
     });
 
@@ -643,22 +671,16 @@ async function submitConnection(): Promise<void> {
       return;
     }
 
-    try {
-      await storeConnectionSecret(result.profile.id, secret);
-    } catch (error) {
-      store.removeConnection(result.profile.id);
-      feedback.value =
-        error instanceof Error
-          ? error.message
-          : "Failed to store connection credentials securely.";
-      return;
-    }
-
+    clearSessionConnectionPassword(result.profile.id);
     store.setActiveConnection(result.profile.id);
-    feedback.value = "Connection saved with encrypted credentials.";
+    feedback.value = "Connection saved.";
     isModalOpen.value = false;
     resetForm();
   } catch (error) {
+    if (error instanceof SecretPinRequiredError) {
+      vaultStore.requestUnlockPrompt(error.envelope);
+    }
+
     feedback.value =
       error instanceof Error ? error.message : "Unable to save connection.";
   } finally {
@@ -666,20 +688,14 @@ async function submitConnection(): Promise<void> {
   }
 }
 
-async function removeConnection(id: string): Promise<void> {
+function removeConnection(id: string): void {
   feedback.value = "";
+  store.removeConnection(id);
+  clearSessionConnectionPassword(id);
 
-  try {
-    await deleteConnectionSecret(id);
-    store.removeConnection(id);
-
-    if (editingConnectionId.value === id) {
-      isModalOpen.value = false;
-      resetForm();
-    }
-  } catch (error) {
-    feedback.value =
-      error instanceof Error ? error.message : "Unable to remove connection.";
+  if (editingConnectionId.value === id) {
+    isModalOpen.value = false;
+    resetForm();
   }
 }
 </script>
@@ -712,10 +728,10 @@ async function removeConnection(id: string): Promise<void> {
         {{ feedback }}
       </p>
 
-      <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div class="mt-4">
         <button
           type="button"
-          class="group flex min-h-[168px] flex-col justify-start gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
+          class="group flex min-h-[140px] w-full flex-col justify-start gap-2 border border-dashed border-[var(--chrome-border-strong)] bg-[rgba(14,18,25,0.7)] px-4 py-5 text-left transition hover:border-[var(--chrome-red)] hover:bg-[rgba(255,82,82,0.08)]"
           :disabled="isSubmitting || isTesting"
           @click="openNewConnectionModal"
         >
@@ -730,98 +746,115 @@ async function removeConnection(id: string): Promise<void> {
             Add Connection
           </p>
           <p class="text-xs text-[var(--chrome-ink-dim)]">
-            Create a new encrypted connection profile.
+            Create personal or team profiles with optional plain/encrypted passwords.
           </p>
         </button>
-
-        <article
-          v-for="profile in store.profiles"
-          :key="profile.id"
-          class="flex min-h-[168px] flex-col border border-[var(--chrome-border)] bg-[#0f141d] p-4"
-        >
-          <div class="flex items-start justify-between gap-2">
-            <button
-              type="button"
-              class="flex min-w-0 items-center gap-2 text-left"
-              :disabled="isSubmitting || isTesting"
-              @click="store.setActiveConnection(profile.id)"
-            >
-              <component
-                :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
-                :size="15"
-                :class="
-                  profile.target.kind === 'desktop-tcp'
-                    ? 'text-[var(--chrome-red)]'
-                    : 'text-[var(--chrome-yellow)]'
-                "
-              />
-
-              <div class="min-w-0">
-                <p
-                  class="truncate text-sm font-semibold text-[var(--chrome-ink)]"
-                >
-                  {{ profile.name }}
-                </p>
-              </div>
-            </button>
-
-            <span
-              v-if="store.activeConnectionId === profile.id"
-              class="chrome-pill chrome-pill-ok"
-            >
-              <CheckCircle2 :size="12" />
-              Active
-            </span>
-            <span v-else class="chrome-pill">Saved</span>
-          </div>
-
-          <p class="mt-3 truncate text-xs text-[var(--chrome-ink-dim)]">
-            {{ connectionTargetLabel(profile) }}
-          </p>
-          <p
-            class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
-          >
-            {{ profile.target.dialect }}
-          </p>
-
-          <div
-            class="mt-4 flex flex-wrap gap-2 border-t border-[var(--chrome-border)] pt-3"
-          >
-            <button
-              type="button"
-              class="chrome-btn"
-              :disabled="
-                isSubmitting ||
-                isTesting ||
-                store.activeConnectionId === profile.id
-              "
-              @click="store.setActiveConnection(profile.id)"
-            >
-              {{ store.activeConnectionId === profile.id ? "Active" : "Use" }}
-            </button>
-
-            <button
-              type="button"
-              class="chrome-btn inline-flex items-center gap-1"
-              :disabled="isSubmitting || isTesting"
-              @click="openEditConnectionModal(profile.id)"
-            >
-              <Pencil :size="13" />
-              Edit
-            </button>
-
-            <button
-              type="button"
-              class="chrome-btn chrome-btn-danger inline-flex items-center gap-1"
-              :disabled="isSubmitting || isTesting"
-              @click="removeConnection(profile.id)"
-            >
-              <Trash2 :size="13" />
-              Delete
-            </button>
-          </div>
-        </article>
       </div>
+
+      <section
+        v-for="section in sections"
+        :key="section.id"
+        class="mt-5"
+      >
+        <h3
+          class="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--chrome-ink-dim)]"
+        >
+          {{ section.label }}
+        </h3>
+
+        <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <article
+            v-for="profile in section.profiles"
+            :key="profile.id"
+            class="flex min-h-[176px] flex-col border border-[var(--chrome-border)] bg-[#0f141d] p-4"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <button
+                type="button"
+                class="flex min-w-0 items-center gap-2 text-left"
+                :disabled="isSubmitting || isTesting"
+                @click="store.setActiveConnection(profile.id)"
+              >
+                <component
+                  :is="profile.target.kind === 'desktop-tcp' ? Monitor : Globe2"
+                  :size="15"
+                  :class="
+                    profile.target.kind === 'desktop-tcp'
+                      ? 'text-[var(--chrome-red)]'
+                      : 'text-[var(--chrome-yellow)]'
+                  "
+                />
+
+                <div class="min-w-0">
+                  <p
+                    class="truncate text-sm font-semibold text-[var(--chrome-ink)]"
+                  >
+                    {{ profile.name }}
+                  </p>
+                </div>
+              </button>
+
+              <span
+                v-if="store.activeConnectionId === profile.id"
+                class="chrome-pill chrome-pill-ok"
+              >
+                <CheckCircle2 :size="12" />
+                Active
+              </span>
+              <span v-else class="chrome-pill">Saved</span>
+            </div>
+
+            <p class="mt-3 truncate text-xs text-[var(--chrome-ink-dim)]">
+              {{ connectionTargetLabel(profile) }}
+            </p>
+            <p
+              class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
+            >
+              {{ profile.target.dialect }}
+            </p>
+            <p class="mt-1 text-[11px] text-[var(--chrome-ink-muted)]">
+              {{ connectionCredentialLabel(profile) }}
+            </p>
+
+            <div
+              class="mt-4 flex flex-wrap gap-2 border-t border-[var(--chrome-border)] pt-3"
+            >
+              <button
+                type="button"
+                class="chrome-btn"
+                :disabled="
+                  isSubmitting ||
+                  isTesting ||
+                  store.activeConnectionId === profile.id
+                "
+                @click="store.setActiveConnection(profile.id)"
+              >
+                {{ store.activeConnectionId === profile.id ? "Active" : "Use" }}
+              </button>
+
+              <button
+                type="button"
+                class="chrome-btn inline-flex items-center gap-1"
+                :disabled="isSubmitting || isTesting"
+                @click="openEditConnectionModal(profile.id)"
+              >
+                <Pencil :size="13" />
+                Edit
+              </button>
+
+              <button
+                type="button"
+                class="chrome-btn chrome-btn-danger inline-flex items-center gap-1"
+                :disabled="isSubmitting || isTesting"
+                @click="removeConnection(profile.id)"
+              >
+                <Trash2 :size="13" />
+                Delete
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
 
       <div
         v-if="store.profiles.length === 0"
@@ -850,7 +883,7 @@ async function removeConnection(id: string): Promise<void> {
               {{ modalTitle }}
             </h3>
             <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-              Configure credentials and test before saving.
+              Configure profile type, connection settings, and password storage.
             </p>
           </div>
 
@@ -869,14 +902,24 @@ async function removeConnection(id: string): Promise<void> {
             class="flex flex-col gap-3 p-4"
             @submit.prevent="submitConnection"
           >
-            <label class="chrome-label">
-              <span>Connection Name</span>
-              <input
-                v-model="form.name"
-                class="chrome-input mt-1"
-                type="text"
-              />
-            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="chrome-label">
+                <span>Connection Name</span>
+                <input
+                  v-model="form.name"
+                  class="chrome-input mt-1"
+                  type="text"
+                />
+              </label>
+
+              <label class="chrome-label">
+                <span>Connection Type</span>
+                <select v-model="form.connectionType" class="chrome-input mt-1">
+                  <option value="personal">Personal</option>
+                  <option value="team">Team</option>
+                </select>
+              </label>
+            </div>
 
             <div v-if="isWebRuntime" class="grid grid-cols-2 gap-3">
               <label class="chrome-label">
@@ -1005,17 +1048,6 @@ async function removeConnection(id: string): Promise<void> {
                   />
                 </label>
 
-                <label class="flex items-center justify-end gap-1.5">
-                  <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                    Show internal and system schemas
-                  </span>
-                  <input
-                    v-model="form.showInternalSchemas"
-                    type="checkbox"
-                    class="size-4 accent-[var(--chrome-red)]"
-                  />
-                </label>
-
                 <div class="grid grid-cols-2 gap-3">
                   <label class="chrome-label">
                     <span>Username</span>
@@ -1027,14 +1059,25 @@ async function removeConnection(id: string): Promise<void> {
                   </label>
 
                   <label class="chrome-label">
-                    <span>Password</span>
+                    <span>Password (optional)</span>
                     <input
-                      v-model="form.providerPassword"
+                      v-model="form.password"
                       class="chrome-input mt-1"
                       type="password"
                     />
                   </label>
                 </div>
+
+                <label class="flex items-center justify-end gap-1.5">
+                  <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                    Show internal and system schemas
+                  </span>
+                  <input
+                    v-model="form.showInternalSchemas"
+                    type="checkbox"
+                    class="size-4 accent-[var(--chrome-red)]"
+                  />
+                </label>
               </template>
 
               <template v-else>
@@ -1098,17 +1141,6 @@ async function removeConnection(id: string): Promise<void> {
                     />
                   </label>
 
-                  <label class="flex items-center justify-end gap-1.5">
-                    <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                      Show internal and system schemas
-                    </span>
-                    <input
-                      v-model="form.showInternalSchemas"
-                      type="checkbox"
-                      class="size-4 accent-[var(--chrome-red)]"
-                    />
-                  </label>
-
                   <div class="grid grid-cols-2 gap-3">
                     <label class="chrome-label">
                       <span>Username</span>
@@ -1141,19 +1173,38 @@ async function removeConnection(id: string): Promise<void> {
                     />
                   </label>
 
-                  <label class="flex items-center justify-end gap-1.5">
-                    <span class="text-[11px] text-[var(--chrome-ink-dim)]">
-                      Show internal and system schemas
-                    </span>
+                  <label class="chrome-label">
+                    <span>Password Override (optional)</span>
                     <input
-                      v-model="form.showInternalSchemas"
-                      type="checkbox"
-                      class="size-4 accent-[var(--chrome-red)]"
+                      v-model="form.password"
+                      class="chrome-input mt-1"
+                      type="password"
+                      placeholder="Use this instead of connection-string password"
                     />
                   </label>
                 </template>
+
+                <label class="flex items-center justify-end gap-1.5">
+                  <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                    Show internal and system schemas
+                  </span>
+                  <input
+                    v-model="form.showInternalSchemas"
+                    type="checkbox"
+                    class="size-4 accent-[var(--chrome-red)]"
+                  />
+                </label>
               </template>
             </template>
+
+            <label v-if="shouldShowPasswordStorage" class="chrome-label">
+              <span>Password Storage</span>
+              <select v-model="form.passwordStorage" class="chrome-input mt-1">
+                <option value="encrypted">Encrypted (PIN protected)</option>
+                <option value="plain">Plain text</option>
+                <option value="none">Do not save password</option>
+              </select>
+            </label>
 
             <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
               <button

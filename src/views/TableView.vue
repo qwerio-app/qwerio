@@ -4,6 +4,7 @@ import { Filter, RefreshCcw, RotateCcw } from "lucide-vue-next";
 import { useRoute } from "vue-router";
 import ResultsGrid from "../components/workbench/ResultsGrid.vue";
 import { getQueryEngine } from "../core/query-engine-service";
+import { SecretPinRequiredError } from "../core/secret-vault";
 import type { ConnectionProfile, QueryResult } from "../core/types";
 import { useConnectionsStore } from "../stores/connections";
 import { useVaultStore } from "../stores/vault";
@@ -123,6 +124,11 @@ async function loadTableRows(): Promise<void> {
 
   if (!tableTab.value) {
     result.value = null;
+
+    if (!workbenchStore.hasHydrated) {
+      return;
+    }
+
     errorMessage.value =
       "Object tab not found. Reopen it from the schema tree.";
     return;
@@ -132,6 +138,11 @@ async function loadTableRows(): Promise<void> {
 
   if (!profile) {
     result.value = null;
+
+    if (!connectionsStore.hasHydrated) {
+      return;
+    }
+
     errorMessage.value =
       "Connection profile was removed. Reopen this object from an active connection.";
     return;
@@ -148,6 +159,10 @@ async function loadTableRows(): Promise<void> {
       sql: buildSql(profile),
     });
   } catch (error) {
+    if (error instanceof SecretPinRequiredError) {
+      vaultStore.requestUnlockPrompt(error.envelope);
+    }
+
     errorMessage.value =
       error instanceof Error
         ? error.message
@@ -185,6 +200,24 @@ watch(
     void loadTableRows();
   },
   { immediate: true },
+);
+
+watch(
+  () => workbenchStore.hasHydrated,
+  (hydrated) => {
+    if (hydrated && tableTabId.value) {
+      void loadTableRows();
+    }
+  },
+);
+
+watch(
+  () => connectionsStore.hasHydrated,
+  (hydrated) => {
+    if (hydrated && tableTabId.value) {
+      void loadTableRows();
+    }
+  },
 );
 
 watch(

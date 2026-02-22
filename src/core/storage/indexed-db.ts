@@ -74,7 +74,7 @@ class QwerioAppDatabase extends Dexie {
   constructor() {
     super(DATABASE_NAME);
 
-    this.version(1).stores({
+    this.version(2).stores({
       connections: "id, order, updatedAt",
       tabs: "id, type, order, tabId, connectionId, [type+tabId], updatedAt",
       settings: "key, updatedAt",
@@ -232,19 +232,28 @@ function isStoredTableRecordWithConnection(
 function toSerializableConnectionProfile(
   profile: ConnectionProfile,
 ): ConnectionProfile {
-  return profile.target.kind === "desktop-tcp"
-    ? {
-        ...profile,
-        target: {
-          ...profile.target,
-        },
-      }
-    : {
-        ...profile,
-        target: {
-          ...profile.target,
-        },
-      };
+  return {
+    ...profile,
+    target: {
+      ...profile.target,
+    },
+    credentials:
+      profile.credentials.storage === "encrypted"
+        ? {
+            storage: "encrypted",
+            envelope: {
+              ...profile.credentials.envelope,
+            },
+          }
+        : profile.credentials.storage === "plain"
+          ? {
+              storage: "plain",
+              password: profile.credentials.password,
+            }
+          : {
+              storage: "none",
+            },
+  };
 }
 
 function parseStoredValue<T>(value: unknown, fallback: T): T {
@@ -261,14 +270,20 @@ export async function loadConnectionsFromStorage(): Promise<
   return readFromDatabase(async (database) => {
     const records = await database.connections.orderBy("order").toArray();
 
-    return records.map((record) => ({
-      id: record.id,
-      name: record.name,
-      target: toSerializableConnectionProfile(record).target,
-      showInternalSchemas: record.showInternalSchemas,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-    }));
+    return records.map((record) => {
+      const profile = toSerializableConnectionProfile(record);
+
+      return {
+        id: profile.id,
+        name: profile.name,
+        type: profile.type,
+        target: profile.target,
+        credentials: profile.credentials,
+        showInternalSchemas: profile.showInternalSchemas,
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt,
+      };
+    });
   }, []);
 }
 

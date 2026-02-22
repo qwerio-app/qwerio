@@ -2,6 +2,8 @@ import type { RuntimeMode } from "./runtime";
 
 export type DbDialect = "postgres" | "mysql" | "sqlserver" | "sqlite";
 
+export type ConnectionProfileType = "personal" | "team";
+
 export type DesktopConnectionTarget =
   | {
       kind: "desktop-tcp";
@@ -24,6 +26,7 @@ export type ConnectionTarget =
       dialect: "postgres";
       provider: "neon";
       endpoint: string;
+      connectionStringTemplate: string;
       projectId?: string;
     }
   | {
@@ -31,6 +34,7 @@ export type ConnectionTarget =
       dialect: "postgres";
       provider: "proxy";
       endpoint: string;
+      connectionStringTemplate: string;
       projectId?: string;
     }
   | {
@@ -38,35 +42,39 @@ export type ConnectionTarget =
       dialect: "mysql";
       provider: "planetscale";
       endpoint: string;
+      username: string;
       projectId?: string;
     };
 
-export type ConnectionSecret =
+export type EncryptedConnectionPassword = {
+  version: 1;
+  algorithm: "aes-gcm";
+  kdf: "pbkdf2-sha256";
+  iterations: number;
+  salt: string;
+  iv: string;
+  ciphertext: string;
+};
+
+export type ConnectionCredentials =
   | {
-      kind: "desktop-tcp";
-      password?: string;
+      storage: "none";
     }
   | {
-      kind: "web-provider";
-      provider: "neon";
-      connectionString: string;
-    }
-  | {
-      kind: "web-provider";
-      provider: "proxy";
-      connectionString: string;
-    }
-  | {
-      kind: "web-provider";
-      provider: "planetscale";
-      username: string;
+      storage: "plain";
       password: string;
+    }
+  | {
+      storage: "encrypted";
+      envelope: EncryptedConnectionPassword;
     };
 
 export type ConnectionProfile = {
   id: string;
   name: string;
+  type: ConnectionProfileType;
   target: ConnectionTarget;
+  credentials: ConnectionCredentials;
   showInternalSchemas?: boolean;
   createdAt: string;
   updatedAt: string;

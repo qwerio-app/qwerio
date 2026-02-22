@@ -1,8 +1,23 @@
 <script setup lang="ts">
-import AppStatusView from "../components/status/AppStatusView.vue";
+import { Lock } from "lucide-vue-next";
+import { onMounted, ref } from "vue";
+import { getRuntimeMode } from "../core/query-engine-service";
 import { useAppSettingsStore } from "../stores/app-settings";
+import { useVaultStore } from "../stores/vault";
 
 const appSettingsStore = useAppSettingsStore();
+const runtimeMode = getRuntimeMode();
+const vaultStore = useVaultStore();
+const vaultFeedback = ref("");
+
+function lockVault(): void {
+  vaultStore.lock();
+  vaultFeedback.value = "Encrypted password PIN locked.";
+}
+
+onMounted(() => {
+  vaultStore.refreshStatus();
+});
 
 function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
   if (preset === "now") {
@@ -22,7 +37,72 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
 
 <template>
   <div class="qwerio-scroll flex h-full flex-col gap-2 overflow-auto">
-    <AppStatusView />
+    <section class="panel-tight p-3">
+      <h2
+        class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
+      >
+        System Status
+      </h2>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+        Current runtime context for Qwerio.
+      </p>
+      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
+        <p
+          class="text-[0.66rem] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]"
+        >
+          Runtime Status
+        </p>
+        <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+          Current runtime:
+          <span
+            class="ml-1 font-semibold uppercase tracking-[0.1em] text-[var(--chrome-green)]"
+          >
+            {{ runtimeMode }}
+          </span>
+        </p>
+      </div>
+    </section>
+
+    <section v-if="vaultStore.status.supported" class="panel-tight p-3">
+      <h2
+        class="font-display text-lg font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
+      >
+        Connection PIN
+      </h2>
+      <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+        Lock encrypted connection passwords. Unlock is handled on demand when
+        needed.
+      </p>
+
+      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs">
+            <span
+              class="chrome-pill"
+              :class="
+                vaultStore.status.unlocked ? 'chrome-pill-ok' : 'chrome-pill-bad'
+              "
+            >
+              {{ vaultStore.status.unlocked ? "Unlocked" : "Locked" }}
+            </span>
+          </p>
+
+          <button
+            v-if="vaultStore.status.unlocked"
+            type="button"
+            class="chrome-btn inline-flex items-center gap-1"
+            @click="lockVault"
+          >
+            <Lock :size="12" />
+            Lock PIN
+          </button>
+        </div>
+      </div>
+
+      <p v-if="vaultFeedback" class="mt-3 text-xs text-[var(--chrome-yellow)]">
+        {{ vaultFeedback }}
+      </p>
+    </section>
 
     <section class="panel-tight p-3">
       <h2

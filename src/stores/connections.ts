@@ -30,6 +30,7 @@ const neonTargetSchema = z.object({
   dialect: z.literal("postgres"),
   provider: z.literal("neon"),
   endpoint: z.string().min(1, "Endpoint is required"),
+  connectionStringTemplate: z.string().min(1, "Connection string is required"),
   projectId: z.string().optional(),
 });
 
@@ -38,6 +39,7 @@ const proxyTargetSchema = z.object({
   dialect: z.literal("postgres"),
   provider: z.literal("proxy"),
   endpoint: z.string().min(1, "Endpoint is required"),
+  connectionStringTemplate: z.string().min(1, "Connection string is required"),
   projectId: z.string().optional(),
 });
 
@@ -46,11 +48,35 @@ const planetScaleTargetSchema = z.object({
   dialect: z.literal("mysql"),
   provider: z.literal("planetscale"),
   endpoint: z.string().min(1, "Endpoint is required"),
+  username: z.string().min(1, "Username is required"),
   projectId: z.string().optional(),
 });
 
+const connectionCredentialsSchema = z.union([
+  z.object({
+    storage: z.literal("none"),
+  }),
+  z.object({
+    storage: z.literal("plain"),
+    password: z.string(),
+  }),
+  z.object({
+    storage: z.literal("encrypted"),
+    envelope: z.object({
+      version: z.literal(1),
+      algorithm: z.literal("aes-gcm"),
+      kdf: z.literal("pbkdf2-sha256"),
+      iterations: z.number().int().positive(),
+      salt: z.string().min(1),
+      iv: z.string().min(1),
+      ciphertext: z.string().min(1),
+    }),
+  }),
+]);
+
 const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
+  type: z.enum(["personal", "team"]),
   target: z.union([
     desktopTcpTargetSchema,
     desktopSqliteTargetSchema,
@@ -58,6 +84,7 @@ const newConnectionSchema = z.object({
     proxyTargetSchema,
     planetScaleTargetSchema,
   ]),
+  credentials: connectionCredentialsSchema,
   showInternalSchemas: z.boolean().optional(),
 });
 
@@ -70,17 +97,31 @@ export const useConnectionsStore = defineStore("connections", () => {
   const hasHydrated = ref(false);
 
   void (async () => {
-    profiles.value = await loadConnectionsFromStorage();
-    activeConnectionId.value = await getVariableValue<string | null>(
-      ACTIVE_CONNECTION_ID_KEY,
-      null,
-    );
+    const [storedProfiles, storedActiveConnectionId] = await Promise.all([
+      loadConnectionsFromStorage(),
+      getVariableValue<string | null>(ACTIVE_CONNECTION_ID_KEY, null),
+    ]);
+
+    profiles.value = storedProfiles;
+    activeConnectionId.value = storedActiveConnectionId;
     hasHydrated.value = true;
+
+    if (
+      profiles.value.length > 0 &&
+      (!activeConnectionId.value ||
+        !profiles.value.some((profile) => profile.id === activeConnectionId.value))
+    ) {
+      activeConnectionId.value = profiles.value[0].id;
+    }
   })();
 
   watch(
     () => profiles.value.map((profile) => profile.id),
     (profileIds) => {
+      if (!hasHydrated.value) {
+        return;
+      }
+
       if (profileIds.length === 0) {
         activeConnectionId.value = null;
         return;
@@ -138,7 +179,9 @@ export const useConnectionsStore = defineStore("connections", () => {
     const profile: ConnectionProfile = {
       id: createNanoId(),
       name: parsed.data.name,
+      type: parsed.data.type,
       target: parsed.data.target,
+      credentials: parsed.data.credentials,
       showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       createdAt: now,
       updatedAt: now,
@@ -179,7 +222,9 @@ export const useConnectionsStore = defineStore("connections", () => {
     const updatedProfile: ConnectionProfile = {
       ...existingProfile,
       name: parsed.data.name,
+      type: parsed.data.type,
       target: parsed.data.target,
+      credentials: parsed.data.credentials,
       showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       updatedAt: new Date().toISOString(),
     };
@@ -208,6 +253,7 @@ export const useConnectionsStore = defineStore("connections", () => {
 
   return {
     profiles,
+    hasHydrated,
     activeConnectionId,
     activeProfile,
     addConnection,

@@ -1,11 +1,27 @@
 import type { QueryEngine } from "../../core/query-engine";
 import type { SchemaObjectMap } from "../../core/query-engine";
-import { loadConnectionSecret } from "../../core/secret-vault";
-import type { ConnectionProfile, ConnectionSecret, QueryRequest, QueryResult } from "../../core/types";
+import { resolveConnectionPassword } from "../../core/connection-secrets";
+import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/types";
 import { NeonServerlessAdapter } from "./providers/neon-adapter";
 import { PlanetScaleAdapter } from "./providers/planetscale-adapter";
 import { ProxyAdapter } from "./providers/proxy-adapter";
 import type { ProviderAdapter } from "./providers/provider-adapter";
+
+function withConnectionStringPassword(
+  connectionStringTemplate: string,
+  password?: string,
+): string {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(connectionStringTemplate);
+  } catch {
+    throw new Error("Connection string is invalid. Edit this connection and save again.");
+  }
+
+  parsedUrl.password = password ?? "";
+  return parsedUrl.toString();
+}
 
 export class BrowserQueryEngine implements QueryEngine {
   private readonly adapters = new Map<string, ProviderAdapter>();
@@ -17,13 +33,8 @@ export class BrowserQueryEngine implements QueryEngine {
       );
     }
 
-    const secret = await loadConnectionSecret(connection.id);
-
-    if (!secret || secret.kind !== "web-provider") {
-      throw new Error("Credentials are missing for this web connection. Re-save the connection.");
-    }
-
-    const adapter = this.createAdapter(connection, secret);
+    const password = await resolveConnectionPassword(connection);
+    const adapter = this.createAdapter(connection, password);
     this.adapters.set(connection.id, adapter);
   }
 
@@ -71,34 +82,34 @@ export class BrowserQueryEngine implements QueryEngine {
     return adapter.listSchemaObjects(schema);
   }
 
-  private createAdapter(connection: ConnectionProfile, secret: ConnectionSecret): ProviderAdapter {
-    if (connection.target.kind !== "web-provider" || secret.kind !== "web-provider") {
-      throw new Error("Connection profile and secret kind mismatch.");
+  private createAdapter(connection: ConnectionProfile, password?: string): ProviderAdapter {
+    if (connection.target.kind !== "web-provider") {
+      throw new Error("Connection profile kind mismatch.");
     }
 
     switch (connection.target.provider) {
       case "neon": {
-        if (secret.provider !== "neon") {
-          throw new Error("This Neon connection is missing Neon credentials.");
-        }
-
-        return new NeonServerlessAdapter(secret.connectionString, connection.target.endpoint);
+        return new NeonServerlessAdapter(
+          withConnectionStringPassword(
+            connection.target.connectionStringTemplate,
+            password,
+          ),
+          connection.target.endpoint,
+        );
       }
       case "proxy": {
-        if (secret.provider !== "proxy") {
-          throw new Error("This proxy connection is missing proxy credentials.");
-        }
-
-        return new ProxyAdapter(secret.connectionString, connection.target.endpoint);
+        return new ProxyAdapter(
+          withConnectionStringPassword(
+            connection.target.connectionStringTemplate,
+            password,
+          ),
+          connection.target.endpoint,
+        );
       }
       case "planetscale": {
-        if (secret.provider !== "planetscale") {
-          throw new Error("This PlanetScale connection is missing PlanetScale credentials.");
-        }
-
         return new PlanetScaleAdapter(connection.target, {
-          username: secret.username,
-          password: secret.password,
+          username: connection.target.username,
+          password: password ?? "",
         });
       }
       default: {
