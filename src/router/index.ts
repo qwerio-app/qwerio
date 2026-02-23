@@ -23,6 +23,16 @@ const router = createRouter({
           component: () => import("../views/ConnectionsView.vue"),
         },
         {
+          path: "subscriptions",
+          name: "subscriptions",
+          component: () => import("../views/SubscriptionView.vue"),
+        },
+        {
+          path: "teams/create",
+          name: "team-create",
+          component: () => import("../views/TeamCreateView.vue"),
+        },
+        {
           path: "tables/:tableTabId",
           name: "table",
           component: () => import("../views/TableView.vue"),

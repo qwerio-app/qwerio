@@ -7,12 +7,23 @@ import {
   saveAuthSessionToStorage,
   toAuthSession,
 } from "../core/auth-session";
-import type { AuthSession, OtpRequestResult } from "../core/auth-types";
+import type {
+  AuthenticatedUser,
+  AuthSession,
+  OtpRequestResult,
+} from "../core/auth-types";
 
 type GithubCallbackParams = {
   accessToken: string;
   expiresAt: string;
 };
+
+function normalizeAuthenticatedUser(user: AuthenticatedUser): AuthenticatedUser {
+  return {
+    ...user,
+    subscriptions: Array.isArray(user.subscriptions) ? user.subscriptions : [],
+  };
+}
 
 function extractGithubCallbackParamsFromUrl(): GithubCallbackParams | null {
   if (typeof window === "undefined") {
@@ -88,6 +99,7 @@ export const useAuthStore = defineStore("auth", () => {
         id: "",
         email: null,
         displayName: null,
+        subscriptions: [],
       },
     };
 
@@ -95,7 +107,9 @@ export const useAuthStore = defineStore("auth", () => {
       throw new Error("GitHub login session already expired. Start login again.");
     }
 
-    const user = await getAuthMe(callbackParams.accessToken);
+    const user = normalizeAuthenticatedUser(
+      await getAuthMe(callbackParams.accessToken),
+    );
     session.value = {
       ...provisionalSession,
       user,
@@ -118,7 +132,9 @@ export const useAuthStore = defineStore("auth", () => {
     }
 
     try {
-      const user = await getAuthMe(storedSession.accessToken);
+      const user = normalizeAuthenticatedUser(
+        await getAuthMe(storedSession.accessToken),
+      );
       session.value = {
         ...storedSession,
         user,
@@ -186,7 +202,7 @@ export const useAuthStore = defineStore("auth", () => {
       return;
     }
 
-    const user = await getAuthMe(token);
+    const user = normalizeAuthenticatedUser(await getAuthMe(token));
     session.value = {
       ...session.value,
       user,

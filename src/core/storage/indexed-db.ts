@@ -94,7 +94,9 @@ export function isAppStorageSupported(): boolean {
 const appDatabase = isIndexedDbSupported() ? new QwerioAppDatabase() : null;
 let hasWarnedAboutStorage = false;
 
-function warnAboutStorageFailure(): void {
+function warnAboutStorageFailure(error: unknown): void {
+  console.error("IndexedDB storage operation failed.", error);
+
   if (hasWarnedAboutStorage) {
     return;
   }
@@ -115,8 +117,8 @@ async function readFromDatabase<T>(
 
   try {
     return await operation(appDatabase);
-  } catch {
-    warnAboutStorageFailure();
+  } catch (error) {
+    warnAboutStorageFailure(error);
     return fallback;
   }
 }
@@ -130,8 +132,8 @@ async function writeToDatabase(
 
   try {
     await operation(appDatabase);
-  } catch {
-    warnAboutStorageFailure();
+  } catch (error) {
+    warnAboutStorageFailure(error);
   }
 }
 

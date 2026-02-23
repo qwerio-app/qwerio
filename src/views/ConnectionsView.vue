@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   CheckCircle2,
   FlaskConical,
@@ -10,6 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-vue-next";
+import { useRoute, useRouter } from "vue-router";
 import { clearSessionConnectionPassword } from "../core/connection-secrets";
 import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
 import {
@@ -37,6 +38,8 @@ type TargetWithPassword = {
 
 const store = useConnectionsStore();
 const vaultStore = useVaultStore();
+const route = useRoute();
+const router = useRouter();
 
 const feedback = ref("");
 const isSubmitting = ref(false);
@@ -53,8 +56,9 @@ const editingProfile = computed<ConnectionProfile | null>(() => {
   }
 
   return (
-    store.profiles.find((profile) => profile.id === editingConnectionId.value) ??
-    null
+    store.profiles.find(
+      (profile) => profile.id === editingConnectionId.value,
+    ) ?? null
   );
 });
 const modalTitle = computed(() =>
@@ -344,7 +348,9 @@ function toConnectionTargetAndPassword(): TargetWithPassword | null {
       dialect: "postgres",
       provider: form.provider,
       endpoint:
-        form.provider === "proxy" ? form.endpoint.trim() || "default" : "default",
+        form.provider === "proxy"
+          ? form.endpoint.trim() || "default"
+          : "default",
       connectionStringTemplate: postgres.template,
       projectId: form.projectId || undefined,
     },
@@ -383,7 +389,8 @@ async function resolveCredentials(
   }
 
   const existingCredentials = editingProfile.value?.credentials ?? null;
-  const hasPasswordInput = typeof passwordInput === "string" && passwordInput.length > 0;
+  const hasPasswordInput =
+    typeof passwordInput === "string" && passwordInput.length > 0;
 
   if (!hasPasswordInput) {
     if (
@@ -500,7 +507,8 @@ function hydrateFormFromProfile(profile: ConnectionProfile): void {
   form.port = DESKTOP_DEFAULT_PORTS.postgres;
   form.database = "";
   form.user = "";
-  form.password = profile.credentials.storage === "plain" ? profile.credentials.password : "";
+  form.password =
+    profile.credentials.storage === "plain" ? profile.credentials.password : "";
   form.provider = "neon";
   form.neonInputMode = "connection-details";
   form.endpoint = "";
@@ -698,6 +706,36 @@ function removeConnection(id: string): void {
     resetForm();
   }
 }
+
+function consumeTeamCreatedMessage(): void {
+  if (route.query.teamCreated !== "1") {
+    return;
+  }
+
+  const teamName =
+    typeof route.query.teamName === "string" &&
+    route.query.teamName.trim().length > 0
+      ? route.query.teamName.trim()
+      : "Team";
+
+  feedback.value = `${teamName} created successfully.`;
+
+  const nextQuery = {
+    ...route.query,
+  };
+
+  delete nextQuery.teamCreated;
+  delete nextQuery.teamName;
+
+  void router.replace({
+    path: route.path,
+    query: nextQuery,
+  });
+}
+
+onMounted(() => {
+  consumeTeamCreatedMessage();
+});
 </script>
 
 <template>
@@ -711,20 +749,20 @@ function removeConnection(id: string): void {
             Connections
           </h2>
           <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
-            Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP
-            drivers for Postgres, MySQL, and SQL Server plus local SQLite files.
-            Web mode uses provider adapters (Neon Serverless, WebSocket Proxy
-            for Postgres, PlanetScale HTTP for MySQL).
+            Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers
+            for Postgres, MySQL, and SQL Server plus local SQLite files. Web
+            mode uses provider adapters (Neon Serverless, WebSocket Proxy for
+            Postgres, PlanetScale HTTP for MySQL).
           </p>
         </div>
 
         <button
           type="button"
-          class="chrome-btn inline-flex items-center gap-1 !px-2.5 !py-1.5 text-[11px]"
+          class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-red)]"
           :disabled="isSubmitting || isTesting"
           @click="openNewConnectionModal"
         >
-          <Plus :size="13" />
+          <Plus :size="13" class="text-[var(--chrome-red)]" />
           New connection
         </button>
       </div>
@@ -737,7 +775,7 @@ function removeConnection(id: string): void {
       </p>
 
       <section
-        v-for="section in sections"
+        v-for="(section, sectionIndex) in sections"
         :key="section.id"
         class="mt-4"
       >
@@ -747,7 +785,9 @@ function removeConnection(id: string): void {
           {{ section.label }}
         </h3>
 
-        <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div
+          class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
           <article
             v-for="profile in section.profiles"
             :key="profile.id"
@@ -838,14 +878,63 @@ function removeConnection(id: string): void {
               </button>
             </div>
           </article>
+
+          <button
+            v-if="sectionIndex === sections.length - 1"
+            type="button"
+            class="group relative flex min-h-[176px] flex-col justify-start border border-[var(--chrome-border)] bg-[#0f141d] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
+            :disabled="isSubmitting || isTesting"
+            @click="openNewConnectionModal"
+          >
+            <span
+              class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[rgba(255,255,255,0.03)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
+            >
+              <Plus :size="16" />
+            </span>
+
+            <div class="mt-4">
+              <p class="text-sm font-semibold text-[var(--chrome-ink)]">
+                New connection
+              </p>
+              <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+                Configure a new connection.
+              </p>
+            </div>
+          </button>
         </div>
       </section>
 
       <div
         v-if="store.profiles.length === 0"
-        class="chrome-empty mt-3 p-4 text-xs"
+        class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
       >
-        No saved connections yet.
+        <button
+          type="button"
+          class="group relative flex min-h-[176px] flex-col justify-between border border-[var(--chrome-border)] bg-[#0f141d] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
+          :disabled="isSubmitting || isTesting"
+          @click="openNewConnectionModal"
+        >
+          <span
+            class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[rgba(255,255,255,0.03)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
+          >
+            <Plus :size="16" />
+          </span>
+
+          <div class="mt-4">
+            <p class="text-sm font-semibold text-[var(--chrome-ink)]">
+              New connection
+            </p>
+            <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
+              No saved connections yet. Create your first profile.
+            </p>
+          </div>
+
+          <span
+            class="mt-4 inline-flex w-fit items-center border border-[var(--chrome-border)] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink-dim)] transition-colors duration-200 group-hover:border-[var(--chrome-red)] group-hover:text-[var(--chrome-ink)]"
+          >
+            Create
+          </span>
+        </button>
       </div>
     </section>
 

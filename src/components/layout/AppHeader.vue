@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Github, LoaderCircle, LogOut, Minus, Plus, Square, UserRound, X } from "lucide-vue-next";
+import {
+  Github,
+  LoaderCircle,
+  LogOut,
+  Minus,
+  Plus,
+  Square,
+  UserRound,
+  X,
+} from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { getRuntimeMode } from "../../core/query-engine-service";
 import { useAppTabsStore, type AppTab } from "../../stores/app-tabs";
@@ -47,6 +56,14 @@ const userInitial = computed(() => {
   return normalized.length > 0 ? normalized.charAt(0).toUpperCase() : null;
 });
 
+const hasEligibleTeamSubscription = computed(() =>
+  (authStore.currentUser?.subscriptions ?? []).some(
+    (subscription) =>
+      subscription.type === "team" &&
+      (subscription.teamId ?? "").trim().length === 0,
+  ),
+);
+
 function toQueryRoutePath(queryTabId: string): string {
   return `/query/${queryTabId}`;
 }
@@ -84,13 +101,14 @@ watch(
 );
 
 watch(
-  () => [
-    route.name,
-    route.path,
-    route.params.queryTabId,
-    route.params.tableTabId,
-    workbenchStore.activeTabId,
-  ] as const,
+  () =>
+    [
+      route.name,
+      route.path,
+      route.params.queryTabId,
+      route.params.tableTabId,
+      workbenchStore.activeTabId,
+    ] as const,
   () => {
     if (route.name === "query") {
       const queryTabId =
@@ -98,7 +116,8 @@ watch(
           ? route.params.queryTabId
           : workbenchStore.activeTab?.id;
       const queryTab = queryTabId
-        ? workbenchStore.tabs.find((tab) => tab.id === queryTabId) ?? workbenchStore.activeTab
+        ? (workbenchStore.tabs.find((tab) => tab.id === queryTabId) ??
+          workbenchStore.activeTab)
         : workbenchStore.activeTab;
 
       if (!queryTab) {
@@ -116,8 +135,12 @@ watch(
 
     if (route.name === "table") {
       const tableTabId =
-        typeof route.params.tableTabId === "string" ? route.params.tableTabId : "";
-      const tableTab = tableTabId ? workbenchStore.getTableTab(tableTabId) : null;
+        typeof route.params.tableTabId === "string"
+          ? route.params.tableTabId
+          : "";
+      const tableTab = tableTabId
+        ? workbenchStore.getTableTab(tableTabId)
+        : null;
 
       appTabsStore.openPageTab({
         pageKey: `table:${tableTabId}`,
@@ -215,7 +238,8 @@ async function requestOtp(): Promise<void> {
 }
 
 async function verifyOtpLogin(): Promise<void> {
-  const email = otpRequestedEmail.value ?? emailInput.value.trim().toLowerCase();
+  const email =
+    otpRequestedEmail.value ?? emailInput.value.trim().toLowerCase();
   const otp = otpInput.value.trim();
 
   if (email.length === 0) {
@@ -264,6 +288,22 @@ function signOut(): void {
   clearOtpState();
   emailInput.value = "";
   closeProfileMenu();
+}
+
+async function navigateToSubscriptions(): Promise<void> {
+  closeProfileMenu();
+
+  if (route.path !== "/subscriptions") {
+    await router.push("/subscriptions");
+  }
+}
+
+async function navigateToCreateTeam(): Promise<void> {
+  closeProfileMenu();
+
+  if (route.path !== "/teams/create") {
+    await router.push("/teams/create");
+  }
 }
 
 function handleDocumentPointerDown(event: Event): void {
@@ -448,14 +488,18 @@ async function closeTab(tab: AppTab): Promise<void> {
             </p>
 
             <template v-if="authStore.isHydrating">
-              <div class="inline-flex items-center gap-2 text-[var(--chrome-ink-dim)]">
+              <div
+                class="inline-flex items-center gap-2 text-[var(--chrome-ink-dim)]"
+              >
                 <LoaderCircle :size="13" class="animate-spin" />
                 <span>Loading auth session...</span>
               </div>
             </template>
 
             <template v-else-if="authStore.isAuthenticated">
-              <div class="rounded-[3px] border border-[var(--chrome-border)] bg-[#101722] px-2 py-2">
+              <div
+                class="rounded-[3px] border border-[var(--chrome-border)] bg-[#101722] px-2 py-2"
+              >
                 <p class="font-semibold text-[var(--chrome-ink)]">
                   {{ userLabel }}
                 </p>
@@ -466,8 +510,30 @@ async function closeTab(tab: AppTab): Promise<void> {
                   {{ authStore.currentUser.email }}
                 </p>
                 <p class="mt-1.5 text-[var(--chrome-ink-muted)]">
-                  Session valid until {{ formatExpiry(authStore.session?.expiresAt ?? null) ?? "unknown" }}
+                  Session valid until
+                  {{
+                    formatExpiry(authStore.session?.expiresAt ?? null) ??
+                    "unknown"
+                  }}
                 </p>
+              </div>
+
+              <div class="grid gap-1.5">
+                <button
+                  type="button"
+                  class="chrome-btn text-left"
+                  @click="navigateToSubscriptions"
+                >
+                  Manage subscription
+                </button>
+                <button
+                  v-if="hasEligibleTeamSubscription"
+                  type="button"
+                  class="chrome-btn text-left"
+                  @click="navigateToCreateTeam"
+                >
+                  Create team
+                </button>
               </div>
 
               <button
@@ -514,9 +580,11 @@ async function closeTab(tab: AppTab): Promise<void> {
               </button>
 
               <p v-if="otpRequestedEmail" class="text-[var(--chrome-ink-dim)]">
-                OTP requested for {{ otpRequestedEmail }}<span
-                  v-if="otpExpiresAt"
-                > (expires {{ formatExpiry(otpExpiresAt) ?? otpExpiresAt }})</span>.
+                OTP requested for {{ otpRequestedEmail
+                }}<span v-if="otpExpiresAt">
+                  (expires
+                  {{ formatExpiry(otpExpiresAt) ?? otpExpiresAt }})</span
+                >.
               </p>
 
               <label

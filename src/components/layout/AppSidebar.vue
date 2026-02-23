@@ -38,6 +38,7 @@ const isConnectionOnline = ref(false);
 const schemaLoadError = ref("");
 const INTERNAL_SCHEMA_NAMES = new Set([
   "pg_catalog",
+  "pg_toast",
   "information_schema",
   "sys",
 ]);
