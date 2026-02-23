@@ -4,7 +4,13 @@ import { format } from "sql-formatter";
 import { getQueryEngine } from "../core/query-engine-service";
 import { createEmptySchemaObjectMap, type SchemaObjectMap } from "../core/query-engine";
 import { SecretPinRequiredError } from "../core/secret-vault";
-import type { QueryResult } from "../core/types";
+import {
+  buildPaginatedSql,
+  clampPageSize,
+  isLikelyTabularQuery,
+  stripTrailingSemicolons,
+} from "../core/sql-pagination";
+import type { ConnectionProfile, QueryResult } from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
 import { useVaultStore } from "./vault";
@@ -20,6 +26,7 @@ export type QueryTab = {
   id: string;
   title: string;
   sql: string;
+  savedQueryId?: string;
 };
 
 export type TableTab = {
@@ -40,8 +47,33 @@ type OpenTableTabInput = {
 
 type TableMap = Record<string, Array<{ name: string }>>;
 type SchemaObjectsBySchema = Record<string, SchemaObjectMap>;
+type QueryExecutionMode = "raw" | "paginated";
+
+type QueryPaginationState = {
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  totalRows: number | null;
+  mode: QueryExecutionMode;
+  lastConnectionId: string | null;
+  lastBaseSql: string;
+};
 
 const DEFAULT_SQL = "select id, name from users limit 100;";
+const DEFAULT_PAGE_SIZE = 200;
+
+function getDefaultPaginationState(): QueryPaginationState {
+  return {
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    hasNextPage: false,
+    totalRows: null,
+    mode: "raw",
+    lastConnectionId: null,
+    lastBaseSql: "",
+  };
+}
+
 function getNextQueryIndex(tabs: QueryTab[]): number {
   const maxIndex = tabs.reduce((currentMax, tab) => {
     const match = /^Query (\d+)$/.exec(tab.title);
@@ -75,9 +107,20 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   const resultByTabId = ref<Record<string, QueryResult | null>>(
     Object.fromEntries(tabs.value.map((tab) => [tab.id, null])),
   );
+  const paginationByTabId = ref<Record<string, QueryPaginationState>>(
+    Object.fromEntries(
+      tabs.value.map((tab) => [tab.id, getDefaultPaginationState()]),
+    ),
+  );
 
   const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null);
   const activeResult = computed(() => (activeTab.value ? resultByTabId.value[activeTab.value.id] ?? null : null));
+  const activePagination = computed<QueryPaginationState>(() =>
+    activeTab.value
+      ? paginationByTabId.value[activeTab.value.id] ??
+        getDefaultPaginationState()
+      : getDefaultPaginationState(),
+  );
 
   void (async () => {
     const storedTabs = await loadWorkbenchTabsFromStorage();
@@ -85,6 +128,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       id: tab.id,
       title: tab.title,
       sql: tab.sql,
+      savedQueryId: tab.savedQueryId,
     }));
     tableTabs.value = storedTabs.tableTabs.map((tab) => ({
       id: tab.id,
@@ -122,6 +166,9 @@ export const useWorkbenchStore = defineStore("workbench", () => {
         tabs.value = [fallbackTab];
         activeTabId.value = fallbackTab.id;
         resultByTabId.value = { [fallbackTab.id]: null };
+        paginationByTabId.value = {
+          [fallbackTab.id]: getDefaultPaginationState(),
+        };
         return;
       }
 
@@ -130,12 +177,16 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       }
 
       const nextResults: Record<string, QueryResult | null> = {};
+      const nextPagination: Record<string, QueryPaginationState> = {};
 
       tabIds.forEach((tabId) => {
         nextResults[tabId] = resultByTabId.value[tabId] ?? null;
+        nextPagination[tabId] =
+          paginationByTabId.value[tabId] ?? getDefaultPaginationState();
       });
 
       resultByTabId.value = nextResults;
+      paginationByTabId.value = nextPagination;
     },
     { immediate: true },
   );
@@ -152,6 +203,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
         id: tab.id,
         title: tab.title,
         sql: tab.sql,
+        savedQueryId: tab.savedQueryId,
       }));
       const storedTableTabs: StoredWorkbenchTableTab[] = nextTableTabs.map((tab) => ({
         type: "table",
@@ -171,20 +223,75 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     { deep: true },
   );
 
+  function createQueryTab(input: {
+    title: string;
+    sql: string;
+    savedQueryId?: string;
+  }): QueryTab {
+    const tab: QueryTab = {
+      id: createNanoId(),
+      title: input.title,
+      sql: input.sql,
+      savedQueryId: input.savedQueryId,
+    };
+
+    tabs.value.push(tab);
+    activeTabId.value = tab.id;
+    resultByTabId.value[tab.id] = null;
+    paginationByTabId.value[tab.id] = getDefaultPaginationState();
+    return tab;
+  }
+
   function addTab(): QueryTab {
     const appSettingsStore = useAppSettingsStore();
     const nextIndex = getNextQueryIndex(tabs.value);
-    const newTab: QueryTab = {
-      id: createNanoId(),
+    return createQueryTab({
       title: `Query ${nextIndex}`,
       sql: appSettingsStore.newQueryTemplateSql.trim() || DEFAULT_SQL,
-    };
+    });
+  }
 
-    tabs.value.push(newTab);
-    activeTabId.value = newTab.id;
-    resultByTabId.value[newTab.id] = null;
+  function addTabFromSavedQuery(input: {
+    savedQueryId?: string;
+    title: string;
+    sql: string;
+  }): QueryTab {
+    return createQueryTab({
+      title: input.title.trim() || `Query ${getNextQueryIndex(tabs.value)}`,
+      sql: input.sql.trim(),
+      savedQueryId: input.savedQueryId,
+    });
+  }
 
-    return newTab;
+  function openSavedQueryTab(input: {
+    savedQueryId: string;
+    title: string;
+    sql: string;
+  }): QueryTab {
+    const normalizedSavedQueryId = input.savedQueryId.trim();
+    const normalizedTitle =
+      input.title.trim() || `Query ${getNextQueryIndex(tabs.value)}`;
+    const normalizedSql = input.sql.trim();
+
+    if (normalizedSavedQueryId.length > 0) {
+      const existingTab =
+        tabs.value.find((tab) => tab.savedQueryId === normalizedSavedQueryId) ??
+        null;
+
+      if (existingTab) {
+        existingTab.title = normalizedTitle;
+        existingTab.sql = normalizedSql;
+        activeTabId.value = existingTab.id;
+        return existingTab;
+      }
+    }
+
+    return createQueryTab({
+      title: normalizedTitle,
+      sql: normalizedSql,
+      savedQueryId:
+        normalizedSavedQueryId.length > 0 ? normalizedSavedQueryId : undefined,
+    });
   }
 
   function closeTab(tabId: string): boolean {
@@ -199,6 +306,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
     tabs.value = tabs.value.filter((tab) => tab.id !== tabId);
     delete resultByTabId.value[tabId];
+    delete paginationByTabId.value[tabId];
 
     if (!tabs.value.some((tab) => tab.id === activeTabId.value)) {
       activeTabId.value = tabs.value[0].id;
@@ -224,6 +332,26 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     }
 
     tab.sql = sql;
+  }
+
+  function bindActiveTabToSavedQuery(input: {
+    savedQueryId: string;
+    title: string;
+  }): void {
+    const tab = activeTab.value;
+
+    if (!tab) {
+      return;
+    }
+
+    const normalizedSavedQueryId = input.savedQueryId.trim();
+
+    if (!normalizedSavedQueryId) {
+      return;
+    }
+
+    tab.savedQueryId = normalizedSavedQueryId;
+    tab.title = input.title.trim() || tab.title;
   }
 
   function openTableTab({
@@ -288,6 +416,98 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     tab.sql = format(tab.sql, { language });
   }
 
+  function resolveResultPageSize(): number {
+    const appSettingsStore = useAppSettingsStore();
+    return clampPageSize(appSettingsStore.resultsPageSize, DEFAULT_PAGE_SIZE);
+  }
+
+  function resolveConnectionById(connectionId: string): ConnectionProfile | null {
+    const connectionStore = useConnectionsStore();
+    return (
+      connectionStore.profiles.find((profile) => profile.id === connectionId) ??
+      null
+    );
+  }
+
+  async function executeQueryPage(input: {
+    tab: QueryTab;
+    connection: ConnectionProfile;
+    baseSql: string;
+    page: number;
+  }): Promise<void> {
+    isRunning.value = true;
+    errorMessage.value = "";
+
+    try {
+      const engine = getQueryEngine();
+      await engine.connect(input.connection);
+
+      const normalizedBaseSql = stripTrailingSemicolons(input.baseSql);
+      const shouldPaginate = isLikelyTabularQuery(normalizedBaseSql);
+
+      if (!shouldPaginate) {
+        const rawResult = await engine.execute({
+          connectionId: input.connection.id,
+          sql: normalizedBaseSql,
+        });
+
+        resultByTabId.value[input.tab.id] = rawResult;
+        paginationByTabId.value[input.tab.id] = {
+          ...getDefaultPaginationState(),
+          mode: "raw",
+          page: 1,
+          pageSize: resolveResultPageSize(),
+          totalRows: rawResult.rowCount,
+          lastConnectionId: input.connection.id,
+          lastBaseSql: normalizedBaseSql,
+        };
+        return;
+      }
+
+      const pageSize = resolveResultPageSize();
+      const paginatedSql = buildPaginatedSql({
+        dialect: input.connection.target.dialect,
+        sql: normalizedBaseSql,
+        page: input.page,
+        pageSize,
+        fetchExtraRow: true,
+      });
+      const result = await engine.execute({
+        connectionId: input.connection.id,
+        sql: paginatedSql,
+      });
+      const hasNextPage = result.rows.length > pageSize;
+      const rows = hasNextPage ? result.rows.slice(0, pageSize) : result.rows;
+
+      resultByTabId.value[input.tab.id] = {
+        ...result,
+        rows,
+        rowCount: rows.length,
+      };
+      paginationByTabId.value[input.tab.id] = {
+        page: input.page,
+        pageSize,
+        hasNextPage,
+        totalRows: null,
+        mode: "paginated",
+        lastConnectionId: input.connection.id,
+        lastBaseSql: normalizedBaseSql,
+      };
+    } catch (error) {
+      if (error instanceof SecretPinRequiredError) {
+        const vaultStore = useVaultStore();
+        vaultStore.requestUnlockPrompt(error.envelope);
+      }
+
+      errorMessage.value =
+        error instanceof Error
+          ? error.message
+          : "Query execution failed. Check your connection and SQL.";
+    } finally {
+      isRunning.value = false;
+    }
+  }
+
   async function executeActiveQuery(): Promise<void> {
     const tab = activeTab.value;
 
@@ -303,30 +523,41 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       return;
     }
 
-    isRunning.value = true;
-    errorMessage.value = "";
+    await executeQueryPage({
+      tab,
+      connection: activeConnection,
+      baseSql: tab.sql,
+      page: 1,
+    });
+  }
 
-    try {
-      const engine = getQueryEngine();
-      await engine.connect(activeConnection);
+  async function loadActiveQueryPage(page: number): Promise<void> {
+    const tab = activeTab.value;
 
-      const result = await engine.execute({
-        connectionId: activeConnection.id,
-        sql: tab.sql,
-      });
-
-      resultByTabId.value[tab.id] = result;
-    } catch (error) {
-      if (error instanceof SecretPinRequiredError) {
-        const vaultStore = useVaultStore();
-        vaultStore.requestUnlockPrompt(error.envelope);
-      }
-
-      errorMessage.value =
-        error instanceof Error ? error.message : "Query execution failed. Check your connection and SQL.";
-    } finally {
-      isRunning.value = false;
+    if (!tab) {
+      return;
     }
+
+    const state = paginationByTabId.value[tab.id];
+
+    if (!state || state.mode !== "paginated" || !state.lastConnectionId) {
+      return;
+    }
+
+    const connection = resolveConnectionById(state.lastConnectionId);
+
+    if (!connection) {
+      errorMessage.value =
+        "The connection used by this result no longer exists. Run the query again.";
+      return;
+    }
+
+    await executeQueryPage({
+      tab,
+      connection,
+      baseSql: state.lastBaseSql,
+      page: Math.max(1, Math.floor(page)),
+    });
   }
 
   async function refreshSchema(): Promise<void> {
@@ -403,6 +634,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     activeTab,
     activeTabId,
     activeResult,
+    activePagination,
     isRunning,
     errorMessage,
     schemaNames,
@@ -410,14 +642,18 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     schemaObjectMap,
     tableTabs,
     addTab,
+    addTabFromSavedQuery,
+    openSavedQueryTab,
     closeTab,
     setActiveTab,
     updateActiveSql,
+    bindActiveTabToSavedQuery,
     openTableTab,
     getTableTab,
     removeTableTab,
     formatActiveSql,
     executeActiveQuery,
+    loadActiveQueryPage,
     refreshSchema,
   };
 });

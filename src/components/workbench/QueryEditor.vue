@@ -2,17 +2,20 @@
 import { computed } from "vue";
 import MonacoEditor from "@guolao/vue-monaco-editor";
 import type { MonacoEditor as MonacoInstance } from "@guolao/vue-monaco-editor";
-import { Bot, Play, Wand2 } from "lucide-vue-next";
+import { Bot, Play, Save, Wand2 } from "lucide-vue-next";
 
 const props = defineProps<{
   modelValue: string;
   isRunning: boolean;
+  canSave?: boolean;
+  isSaving?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
   run: [];
   format: [];
+  save: [];
 }>();
 
 const sqlValue = computed({
@@ -58,6 +61,16 @@ const handleBeforeMount = (monaco: MonacoInstance): void => {
       </p>
 
       <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          class="chrome-btn inline-flex items-center gap-1"
+          :disabled="isSaving || !canSave"
+          @click="emit('save')"
+        >
+          <Save :size="12" />
+          {{ isSaving ? "Saving" : "Save" }}
+        </button>
+
         <button
           type="button"
           class="chrome-btn inline-flex items-center gap-1"

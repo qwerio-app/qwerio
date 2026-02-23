@@ -8,12 +8,15 @@ import {
   Check,
   ChevronRight,
   Database,
+  FileCode,
   RefreshCcw,
   Settings,
   Table2,
+  Trash2,
 } from "lucide-vue-next";
 import { useAppSettingsStore } from "../../stores/app-settings";
 import { useConnectionsStore } from "../../stores/connections";
+import { useSavedQueriesStore } from "../../stores/saved-queries";
 import { useUiStore } from "../../stores/ui";
 import { useWorkbenchStore } from "../../stores/workbench";
 
@@ -24,6 +27,7 @@ const uiStore = useUiStore();
 const vaultStore = useVaultStore();
 const connectionsStore = useConnectionsStore();
 const workbenchStore = useWorkbenchStore();
+const savedQueriesStore = useSavedQueriesStore();
 
 const footerLinks = [
   { to: "/connections", label: "Connections", icon: Cable },
@@ -69,6 +73,7 @@ const showInternalSchemasForConnection = computed(() =>
 );
 
 const schemaGroupMeta = [
+  { key: "queries", label: "my queries", advanced: false },
   { key: "tables", label: "tables", advanced: false },
   { key: "views", label: "views", advanced: false },
   { key: "functions", label: "functions", advanced: true },
@@ -86,7 +91,7 @@ type SidebarSchemaObject = {
   groups: Array<{
     key: SidebarSchemaGroupKey;
     label: string;
-    items: Array<{ name: string }>;
+    items: Array<{ id?: string; name: string }>;
   }>;
 };
 
@@ -125,10 +130,22 @@ const schemaObjects = computed<SidebarSchemaObject[]>(() =>
       key: groupMeta.key,
       label: groupMeta.label,
       items:
-        schemaObjectGroup?.[groupMeta.key] ??
-        (groupMeta.key === "tables"
-          ? (workbenchStore.tableMap[schema.name] ?? [])
-          : []),
+        groupMeta.key === "queries"
+          ? activeConnection.value
+            ? savedQueriesStore
+                .getQueriesForConnectionSchema(
+                  activeConnection.value.id,
+                  schema.name,
+                )
+                .map((savedQuery) => ({
+                  id: savedQuery.id,
+                  name: savedQuery.name,
+                }))
+            : []
+          : (schemaObjectGroup?.[groupMeta.key] ??
+            (groupMeta.key === "tables"
+              ? (workbenchStore.tableMap[schema.name] ?? [])
+              : [])),
     }));
     const totalCount = groups.reduce(
       (currentCount, group) => currentCount + group.items.length,
@@ -177,7 +194,8 @@ function isSchemaGroupExpanded(
   groupKey: SidebarSchemaGroupKey,
 ): boolean {
   return (
-    expandedSchemaGroups.value[schemaName]?.[groupKey] ?? groupKey === "tables"
+    expandedSchemaGroups.value[schemaName]?.[groupKey] ??
+    (groupKey === "tables" || groupKey === "queries")
   );
 }
 
@@ -197,6 +215,31 @@ function toggleSchemaGroup(
 
 function isOpenableRelationGroup(groupKey: SidebarSchemaGroupKey): boolean {
   return groupKey === "tables" || groupKey === "views";
+}
+
+async function openSavedQuery(queryId: string): Promise<void> {
+  const savedQuery =
+    savedQueriesStore.queries.find((query) => query.id === queryId) ?? null;
+
+  if (!savedQuery) {
+    return;
+  }
+
+  const queryTab = workbenchStore.openSavedQueryTab({
+    savedQueryId: savedQuery.id,
+    title: savedQuery.name,
+    sql: savedQuery.sql,
+  });
+
+  await router.push(`/query/${queryTab.id}`);
+}
+
+async function removeSavedQuery(queryId: string): Promise<void> {
+  if (!queryId) {
+    return;
+  }
+
+  await savedQueriesStore.removeQuery(queryId);
 }
 
 async function refreshSchema(): Promise<void> {
@@ -264,6 +307,7 @@ watch(
 
       const currentGroups = expandedSchemaGroups.value[schemaName] ?? {};
       const nextGroups: Record<SidebarSchemaGroupKey, boolean> = {
+        queries: currentGroups.queries ?? true,
         tables: currentGroups.tables ?? true,
         views: currentGroups.views ?? false,
         functions: currentGroups.functions ?? false,
@@ -404,7 +448,7 @@ watch(
 
         <div
           v-if="!uiStore.sidebarCollapsed"
-          class="qwerio-scroll min-h-0 flex-1 overflow-auto p-1.5"
+          class="qwerio-scroll min-h-0 flex-1 overflow-auto"
         >
           <p
             v-if="schemaLoadError"
@@ -435,7 +479,7 @@ watch(
             <section
               v-for="schema in schemaObjects"
               :key="schema.name"
-              class="border border-[var(--chrome-border)] bg-[#111723]"
+              :class="isSchemaExpanded(schema.name) ? 'bg-[#111723]' : ''"
             >
               <button
                 type="button"
@@ -461,7 +505,7 @@ watch(
 
               <ul
                 v-if="isSchemaExpanded(schema.name)"
-                class="m-0 list-none border-t border-[var(--chrome-border)] px-1.5 py-1"
+                class="m-0 list-none border-b border-[var(--chrome-border)] px-1.5 py-1"
               >
                 <li
                   v-for="group in schema.groups"
@@ -470,7 +514,7 @@ watch(
                 >
                   <button
                     type="button"
-                    class="flex w-full items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
+                    class="flex w-full min-w-0 items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
                     @click="toggleSchemaGroup(schema.name, group.key)"
                   >
                     <ChevronRight
@@ -497,7 +541,7 @@ watch(
                           :size="11"
                           class="text-[var(--chrome-yellow)]"
                         />
-                        <span>No {{ group.label }}</span>
+                        <span>No {{ group.key }}</span>
                       </div>
                     </li>
 
@@ -506,8 +550,34 @@ watch(
                       :key="`${group.key}-${item.name}-${itemIndex}`"
                       class="mb-0.5 last:mb-0"
                     >
+                      <div
+                        v-if="group.key === 'queries'"
+                        class="flex items-center gap-1"
+                      >
+                        <button
+                          type="button"
+                          class="flex min-w-0 flex-1 items-center gap-1.5 border border-transparent pl-4 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                          @click="openSavedQuery(item.id ?? '')"
+                        >
+                          <FileCode
+                            :size="11"
+                            class="shrink-0 text-[var(--chrome-cyan)]"
+                          />
+                          <span class="truncate">{{ item.name }}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="inline-flex size-5 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-muted)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-red)]"
+                          aria-label="Delete saved query"
+                          @click="removeSavedQuery(item.id ?? '')"
+                        >
+                          <Trash2 :size="11" />
+                        </button>
+                      </div>
+
                       <button
-                        v-if="isOpenableRelationGroup(group.key)"
+                        v-else-if="isOpenableRelationGroup(group.key)"
                         type="button"
                         class="flex w-full items-center gap-1.5 border border-transparent pl-4 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
                         @click="

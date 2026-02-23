@@ -127,6 +127,21 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
             class="size-4 accent-[var(--chrome-red)]"
           />
         </label>
+
+        <label
+          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
+        >
+          <span class="text-xs text-[var(--chrome-ink-dim)]"
+            >Default records per results page</span
+          >
+          <input
+            v-model.number="appSettingsStore.resultsPageSize"
+            type="number"
+            min="1"
+            max="5000"
+            class="chrome-input chrome-input-sm w-24 text-right"
+          />
+        </label>
       </div>
     </section>
 

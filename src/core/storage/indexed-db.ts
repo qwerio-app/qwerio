@@ -9,6 +9,7 @@ export type StoredWorkbenchQueryTab = {
   id: string;
   title: string;
   sql: string;
+  savedQueryId?: string;
 };
 
 export type StoredWorkbenchTableTab = {
@@ -50,6 +51,7 @@ type StoredTabRecord = {
   path: string;
   sql: string;
   title: string;
+  savedQueryId?: string;
   updatedAt: string;
 };
 
@@ -65,11 +67,24 @@ type StoredVariableRecord = {
   updatedAt: string;
 };
 
+export type StoredSavedQuery = {
+  id: string;
+  connectionId: string;
+  schemaName: string;
+  name: string;
+  sql: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type StoredSavedQueryRecord = StoredSavedQuery;
+
 class QwerioAppDatabase extends Dexie {
   connections!: Table<StoredConnectionRecord, string>;
   tabs!: Table<StoredTabRecord, string>;
   settings!: Table<StoredSettingRecord, string>;
   variables!: Table<StoredVariableRecord, string>;
+  queries!: Table<StoredSavedQueryRecord, string>;
 
   constructor() {
     super(DATABASE_NAME);
@@ -79,6 +94,15 @@ class QwerioAppDatabase extends Dexie {
       tabs: "id, type, order, tabId, connectionId, [type+tabId], updatedAt",
       settings: "key, updatedAt",
       variables: "key, updatedAt",
+    });
+
+    this.version(3).stores({
+      connections: "id, order, updatedAt",
+      tabs: "id, type, order, tabId, connectionId, [type+tabId], updatedAt",
+      settings: "key, updatedAt",
+      variables: "key, updatedAt",
+      queries:
+        "id, connectionId, schemaName, [connectionId+schemaName], updatedAt, createdAt",
     });
   }
 }
@@ -324,6 +348,11 @@ export async function loadWorkbenchTabsFromStorage(): Promise<{
           id: tab.tabId,
           title: tab.title,
           sql: tab.sql,
+          savedQueryId:
+            typeof tab.savedQueryId === "string" &&
+            tab.savedQueryId.trim().length > 0
+              ? tab.savedQueryId
+              : undefined,
         }));
 
       const tableTabs = records
@@ -384,6 +413,7 @@ export async function saveWorkbenchTabsToStorage(input: {
             path: existingRecord?.path ?? toQueryPath(tab.id),
             sql: tab.sql,
             title: tab.title,
+            savedQueryId: tab.savedQueryId,
             updatedAt: timestamp,
           };
         }),
@@ -478,6 +508,10 @@ export async function saveAppTabsToStorage(
             path: tab.routePath || toQueryPath(tabId),
             sql: existingRecord?.type === "query" ? existingRecord.sql : "",
             title: tab.title,
+            savedQueryId:
+              existingRecord?.type === "query"
+                ? existingRecord.savedQueryId
+                : undefined,
             updatedAt: timestamp,
           });
           return;
@@ -569,5 +603,43 @@ export async function setVariableValue<T>(
       value,
       updatedAt: nowIsoTimestamp(),
     });
+  });
+}
+
+export async function loadSavedQueriesFromStorage(): Promise<StoredSavedQuery[]> {
+  return readFromDatabase(async (database) => {
+    const records = await database.queries.orderBy("updatedAt").reverse().toArray();
+
+    return records.map((record) => ({
+      id: record.id,
+      connectionId: record.connectionId,
+      schemaName: record.schemaName,
+      name: record.name,
+      sql: record.sql,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    }));
+  }, []);
+}
+
+export async function saveSavedQueryToStorage(
+  query: StoredSavedQuery,
+): Promise<void> {
+  await writeToDatabase(async (database) => {
+    await database.queries.put({
+      id: query.id,
+      connectionId: query.connectionId,
+      schemaName: query.schemaName,
+      name: query.name,
+      sql: query.sql,
+      createdAt: query.createdAt,
+      updatedAt: query.updatedAt,
+    });
+  });
+}
+
+export async function removeSavedQueryFromStorage(id: string): Promise<void> {
+  await writeToDatabase(async (database) => {
+    await database.queries.delete(id);
   });
 }
