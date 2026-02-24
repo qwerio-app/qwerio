@@ -18,6 +18,11 @@ const router = createRouter({
           component: () => import("../views/QueryView.vue"),
         },
         {
+          path: "empty",
+          name: "empty",
+          component: () => import("../views/EmptyView.vue"),
+        },
+        {
           path: "connections",
           name: "connections",
           component: () => import("../views/ConnectionsView.vue"),

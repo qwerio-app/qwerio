@@ -202,10 +202,6 @@ function getRouteQueryTabId(): string {
   return typeof route.params.queryTabId === "string" ? route.params.queryTabId : "";
 }
 
-function createRouteQueryTabId(): string {
-  return workbenchStore.activeTab?.id ?? workbenchStore.addTab().id;
-}
-
 watch(
   () => route.params.queryTabId,
   () => {
@@ -216,18 +212,32 @@ watch(
     const queryTabId = getRouteQueryTabId();
 
     if (!queryTabId) {
-      void router.replace({
-        name: "query",
-        params: { queryTabId: createRouteQueryTabId() },
-      });
+      const fallbackTabId = workbenchStore.activeTab?.id ?? workbenchStore.tabs[0]?.id;
+
+      if (fallbackTabId) {
+        void router.replace({
+          name: "query",
+          params: { queryTabId: fallbackTabId },
+        });
+      } else {
+        void router.replace("/empty");
+      }
+
       return;
     }
 
     if (!workbenchStore.setActiveTab(queryTabId)) {
-      void router.replace({
-        name: "query",
-        params: { queryTabId: createRouteQueryTabId() },
-      });
+      const fallbackTabId = workbenchStore.activeTab?.id ?? workbenchStore.tabs[0]?.id;
+
+      if (fallbackTabId) {
+        void router.replace({
+          name: "query",
+          params: { queryTabId: fallbackTabId },
+        });
+        return;
+      }
+
+      void router.replace("/empty");
     }
   },
   { immediate: true },
@@ -237,6 +247,13 @@ watch(
   () => workbenchStore.activeTabId,
   (tabId) => {
     if (route.name !== "query") {
+      return;
+    }
+
+    if (!tabId) {
+      if (getRouteQueryTabId()) {
+        void router.replace("/empty");
+      }
       return;
     }
 

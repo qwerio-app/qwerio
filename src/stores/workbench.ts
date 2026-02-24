@@ -89,15 +89,6 @@ function getNextQueryIndex(tabs: QueryTab[]): number {
   return maxIndex + 1;
 }
 
-function createFallbackQueryTab(connectionId: string): QueryTab {
-  return {
-    id: createNanoId(),
-    connectionId,
-    title: "Query 1",
-    sql: DEFAULT_SQL,
-  };
-}
-
 export const useWorkbenchStore = defineStore("workbench", () => {
   const tabs = ref<QueryTab[]>([]);
   const tableTabs = ref<TableTab[]>([]);
@@ -134,7 +125,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
   async function hydrateTabsForConnection(connectionId: string | null): Promise<void> {
     const requestId = ++hydrationRequestId;
-    const scopedConnectionId = connectionId ?? "";
 
     const storedTabs = connectionId
       ? await loadWorkbenchTabsFromStorage(connectionId)
@@ -163,10 +153,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       objectType: tab.objectType,
     }));
 
-    if (tabs.value.length === 0) {
-      tabs.value = [createFallbackQueryTab(scopedConnectionId)];
-    }
-
     activeTabId.value = tabs.value[0]?.id ?? "";
     hydratedConnectionId.value = connectionId;
     hasHydrated.value = true;
@@ -189,13 +175,9 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     () => tabs.value.map((tab) => tab.id),
     (tabIds) => {
       if (tabIds.length === 0) {
-        const fallbackTab = createFallbackQueryTab(resolveScopeConnectionId());
-        tabs.value = [fallbackTab];
-        activeTabId.value = fallbackTab.id;
-        resultByTabId.value = { [fallbackTab.id]: null };
-        paginationByTabId.value = {
-          [fallbackTab.id]: getDefaultPaginationState(),
-        };
+        activeTabId.value = "";
+        resultByTabId.value = {};
+        paginationByTabId.value = {};
         return;
       }
 
@@ -334,10 +316,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   }
 
   function closeTab(tabId: string): boolean {
-    if (tabs.value.length <= 1) {
-      return false;
-    }
-
     const tabExists = tabs.value.some((tab) => tab.id === tabId);
     if (!tabExists) {
       return false;
@@ -348,7 +326,7 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     delete paginationByTabId.value[tabId];
 
     if (!tabs.value.some((tab) => tab.id === activeTabId.value)) {
-      activeTabId.value = tabs.value[0].id;
+      activeTabId.value = tabs.value[0]?.id ?? "";
     }
 
     return true;

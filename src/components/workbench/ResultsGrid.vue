@@ -431,7 +431,8 @@ watch(
     </div>
 
     <div
-      class="chrome-panel-header flex items-center gap-2 px-2 py-1"
+      v-if="pagination || message || result || $slots['footer-center']"
+      class="chrome-panel-header flex items-center gap-2 px-2 py-0.5"
       style="border-bottom: 0; border-top: 1px solid var(--chrome-border)"
     >
       <div class="flex min-w-0 items-center gap-2">
@@ -487,9 +488,13 @@ watch(
         </p>
       </div>
 
+      <div class="flex min-w-0 flex-1 items-center justify-center">
+        <slot name="footer-center" />
+      </div>
+
       <p
         v-if="result"
-        class="ml-auto text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--chrome-ink-muted)]"
+        class="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--chrome-ink-muted)]"
       >
         <span v-if="totalRows !== null">{{ `${totalRows} rows` }} / </span>
         {{ result.elapsedMs }} ms

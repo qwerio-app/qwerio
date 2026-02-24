@@ -91,15 +91,19 @@ const tableTitle = computed(() => {
 
 const tableObjectType = computed(() => tableTab.value?.objectType ?? "table");
 const isReadOnlyView = computed(() => tableObjectType.value === "view");
-const objectLabel = computed(() =>
-  isReadOnlyView.value ? "view" : "table",
-);
+const objectLabel = computed(() => (isReadOnlyView.value ? "view" : "table"));
 const hasPrimaryKey = computed(() => primaryKeyColumns.value.length > 0);
 const canInlineEdit = computed(
   () => !isReadOnlyView.value && hasPrimaryKey.value,
 );
 const pendingEdits = computed(() => Object.values(pendingEditsByKey.value));
 const pendingEditCount = computed(() => pendingEdits.value.length);
+const hasPendingChanges = computed(() => pendingEditCount.value > 0);
+const pendingChangesStatusLabel = computed(() =>
+  hasPendingChanges.value
+    ? `${pendingEditCount.value} pending change(s)`
+    : "No changes",
+);
 const gridPagination = computed(() =>
   result.value
     ? {
@@ -279,7 +283,9 @@ function parsePrimaryKeyColumns(
     .filter((name) => name.length > 0);
 }
 
-async function loadPrimaryKeyColumns(profile: ConnectionProfile): Promise<void> {
+async function loadPrimaryKeyColumns(
+  profile: ConnectionProfile,
+): Promise<void> {
   if (!tableTab.value) {
     primaryKeyColumns.value = [];
     primaryKeyLookupKey.value = "";
@@ -487,7 +493,10 @@ function getPrimaryKeySnapshot(rowData: Record<string, unknown>): {
 }
 
 function handleGridCellEdited(payload: GridCellEditedPayload): void {
-  if (!canInlineEdit.value || primaryKeyColumns.value.includes(payload.column)) {
+  if (
+    !canInlineEdit.value ||
+    primaryKeyColumns.value.includes(payload.column)
+  ) {
     return;
   }
 
@@ -756,35 +765,6 @@ watch(
         Inline editing is disabled. This table needs a primary key for atomic
         updates.
       </div>
-
-      <div
-        v-if="pendingEditCount > 0"
-        class="mt-3 flex flex-wrap items-center justify-between gap-2 border border-[var(--chrome-border)] bg-[#0d1118] px-2.5 py-2"
-      >
-        <p class="text-xs text-[var(--chrome-ink-dim)]">
-          {{ pendingEditCount }} pending cell change(s)
-        </p>
-        <div class="inline-flex items-center gap-2">
-          <button
-            type="button"
-            class="chrome-btn inline-flex items-center gap-1"
-            :disabled="isSavingChanges"
-            @click="rollbackPendingChanges"
-          >
-            <RotateCcw :size="12" />
-            Rollback
-          </button>
-          <button
-            type="button"
-            class="chrome-btn chrome-btn-primary inline-flex items-center gap-1"
-            :disabled="isSavingChanges"
-            @click="confirmPendingChanges"
-          >
-            <Check :size="12" />
-            Confirm
-          </button>
-        </div>
-      </div>
     </section>
 
     <div class="min-h-0 flex-1 overflow-hidden">
@@ -796,7 +776,38 @@ watch(
         :non-editable-columns="primaryKeyColumns"
         @change-page="handlePaginationChange"
         @cell-edited="handleGridCellEdited"
-      />
+      >
+        <template #footer-center>
+          <div
+            v-if="canInlineEdit"
+            class="inline-flex items-center gap-2 px-2 py-1"
+          >
+            <p class="text-xs text-[var(--chrome-ink-dim)]">
+              {{ pendingChangesStatusLabel }}
+            </p>
+            <div class="inline-flex items-center gap-2">
+              <button
+                type="button"
+                class="chrome-btn inline-flex items-center gap-1 !py-0.5"
+                :disabled="isSavingChanges || !hasPendingChanges"
+                @click="rollbackPendingChanges"
+              >
+                <RotateCcw :size="12" />
+                Rollback
+              </button>
+              <button
+                type="button"
+                class="chrome-btn chrome-btn-primary inline-flex items-center gap-1 !py-0.5"
+                :disabled="isSavingChanges || !hasPendingChanges"
+                @click="confirmPendingChanges"
+              >
+                <Check :size="12" />
+                Confirm
+              </button>
+            </div>
+          </div>
+        </template>
+      </ResultsGrid>
     </div>
   </div>
 </template>

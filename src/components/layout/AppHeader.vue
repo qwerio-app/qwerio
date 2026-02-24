@@ -138,17 +138,26 @@ watch(
         typeof route.params.tableTabId === "string"
           ? route.params.tableTabId
           : "";
-      const tableTab = tableTabId ? workbenchStore.getTableTab(tableTabId) : null;
+      const tableTab = tableTabId
+        ? workbenchStore.getTableTab(tableTabId)
+        : null;
 
       if (!tableTab) {
-        const fallbackQuery = workbenchStore.activeTab ?? workbenchStore.addTab();
-        appTabsStore.openQueryTab({
-          queryTabId: fallbackQuery.id,
-          title: fallbackQuery.title,
-          routePath: toQueryRoutePath(fallbackQuery.id),
-          activate: true,
-        });
-        void router.replace(toQueryRoutePath(fallbackQuery.id));
+        const fallbackQuery = workbenchStore.activeTab;
+
+        if (fallbackQuery) {
+          appTabsStore.openQueryTab({
+            queryTabId: fallbackQuery.id,
+            title: fallbackQuery.title,
+            routePath: toQueryRoutePath(fallbackQuery.id),
+            activate: true,
+          });
+          void router.replace(toQueryRoutePath(fallbackQuery.id));
+          return;
+        }
+
+        appTabsStore.clearActiveTab();
+        void router.replace("/empty");
         return;
       }
 
@@ -409,15 +418,8 @@ async function closeTab(tab: AppTab): Promise<void> {
     return;
   }
 
-  const fallbackQuery = workbenchStore.activeTab ?? workbenchStore.addTab();
-  const fallbackAppTab = appTabsStore.openQueryTab({
-    queryTabId: fallbackQuery.id,
-    title: fallbackQuery.title,
-    routePath: toQueryRoutePath(fallbackQuery.id),
-    activate: true,
-  });
-
-  await activateTab(fallbackAppTab);
+  appTabsStore.clearActiveTab();
+  await router.replace("/empty");
 }
 </script>
 
@@ -548,11 +550,11 @@ async function closeTab(tab: AppTab): Promise<void> {
 
               <button
                 type="button"
-                class="chrome-btn inline-flex items-center justify-center gap-1.5"
+                class="chrome-btn inline-flex items-center justify-between gap-1.5"
                 @click="signOut"
               >
-                <LogOut :size="13" />
                 Sign out
+                <LogOut :size="13" />
               </button>
             </template>
 
