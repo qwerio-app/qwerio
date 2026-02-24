@@ -19,6 +19,7 @@ import { useConnectionsStore } from "../../stores/connections";
 import { useSavedQueriesStore } from "../../stores/saved-queries";
 import { useUiStore } from "../../stores/ui";
 import { useWorkbenchStore } from "../../stores/workbench";
+import { filterVisibleSchemas } from "../../core/schema-visibility";
 
 const route = useRoute();
 const router = useRouter();
@@ -40,12 +41,6 @@ const expandedSchemaGroups = ref<
 const isRefreshingSchema = ref(false);
 const isConnectionOnline = ref(false);
 const schemaLoadError = ref("");
-const INTERNAL_SCHEMA_NAMES = new Set([
-  "pg_catalog",
-  "pg_toast",
-  "information_schema",
-  "sys",
-]);
 
 const activeConnection = computed(() => connectionsStore.activeProfile);
 const savedConnectionsCount = computed(() => connectionsStore.profiles.length);
@@ -102,17 +97,10 @@ const visibleSchemaGroupMeta = computed(() =>
   ),
 );
 
-function isInternalSchemaName(schemaName: string): boolean {
-  return INTERNAL_SCHEMA_NAMES.has(schemaName.trim().toLowerCase());
-}
-
 const visibleSchemas = computed(() => {
-  if (showInternalSchemasForConnection.value) {
-    return workbenchStore.schemaNames;
-  }
-
-  return workbenchStore.schemaNames.filter(
-    (schema) => !isInternalSchemaName(schema.name),
+  return filterVisibleSchemas(
+    workbenchStore.schemaNames,
+    showInternalSchemasForConnection.value,
   );
 });
 

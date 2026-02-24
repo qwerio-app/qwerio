@@ -9,7 +9,10 @@ import type {
 } from "monaco-editor";
 import { computed, onBeforeUnmount, ref } from "vue";
 import { buildSqlAutocompleteSuggestions } from "../../core/sql-autocomplete";
+import type { SchemaObjectMap } from "../../core/query-engine";
+import { filterVisibleSchemas } from "../../core/schema-visibility";
 import { useConnectionsStore } from "../../stores/connections";
+import { useSavedQueriesStore } from "../../stores/saved-queries";
 import { useWorkbenchStore } from "../../stores/workbench";
 
 const props = defineProps<{
@@ -26,6 +29,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 const connectionsStore = useConnectionsStore();
+const savedQueriesStore = useSavedQueriesStore();
 const workbenchStore = useWorkbenchStore();
 let completionProvider: IDisposable | null = null;
 
@@ -54,6 +58,76 @@ const editorOptions = {
 
 const monacoTheme = "qwerio-dark";
 
+function resolveSchemaObjectMapForAutocomplete(): Record<string, SchemaObjectMap> {
+  const activeConnection = connectionsStore.activeProfile;
+  const activeTab = workbenchStore.activeTab;
+  const hasActiveScope =
+    Boolean(activeConnection?.id) &&
+    Boolean(activeTab?.connectionId) &&
+    activeConnection?.id === activeTab?.connectionId;
+
+  if (!hasActiveScope || !activeConnection) {
+    return {};
+  }
+
+  const visibleSchemas = filterVisibleSchemas(
+    workbenchStore.schemaNames,
+    Boolean(activeConnection.showInternalSchemas),
+  );
+
+  if (visibleSchemas.length === 0) {
+    return {};
+  }
+
+  const schemaLookup: Record<string, string> = {};
+  visibleSchemas.forEach((schema) => {
+    const schemaName = schema.name.trim();
+
+    if (schemaName.length > 0) {
+      schemaLookup[schemaName.toLowerCase()] = schemaName;
+    }
+  });
+
+  const savedQuerySchemaName = activeTab?.savedQueryId
+    ? savedQueriesStore.queries
+        .find(
+          (query) =>
+            query.id === activeTab.savedQueryId &&
+            query.connectionId === activeConnection.id,
+        )
+        ?.schemaName.trim() ?? ""
+    : "";
+  const resolvedSchemaFromSavedQuery =
+    savedQuerySchemaName.length > 0
+      ? schemaLookup[savedQuerySchemaName.toLowerCase()] ?? null
+      : null;
+  const resolvedSqliteSchema =
+    activeConnection.target.dialect === "sqlite"
+      ? schemaLookup.main ?? null
+      : null;
+  const resolvedPublicSchema = schemaLookup.public ?? null;
+  const fallbackSchemaName = visibleSchemas[0]?.name ?? null;
+  const activeSchemaName =
+    resolvedSchemaFromSavedQuery ??
+    resolvedSqliteSchema ??
+    resolvedPublicSchema ??
+    fallbackSchemaName;
+
+  if (!activeSchemaName) {
+    return {};
+  }
+
+  const activeSchemaObjectMap = workbenchStore.schemaObjectMap[activeSchemaName];
+
+  if (!activeSchemaObjectMap) {
+    return {};
+  }
+
+  return {
+    [activeSchemaName]: activeSchemaObjectMap,
+  };
+}
+
 function runQuery(): void {
   if (props.isRunning) {
     return;
@@ -80,12 +154,6 @@ const handleBeforeMount = (monaco: MonacoInstance): void => {
       model: MonacoEditorApi.ITextModel,
       position: IPosition,
     ) {
-      const activeConnection = connectionsStore.activeProfile;
-      const activeTab = workbenchStore.activeTab;
-      const hasActiveScope =
-        Boolean(activeConnection?.id) &&
-        Boolean(activeTab?.connectionId) &&
-        activeConnection?.id === activeTab?.connectionId;
       const wordUntil = model.getWordUntilPosition(position);
       const linePrefix = model
         .getLineContent(position.lineNumber)
@@ -97,10 +165,11 @@ const handleBeforeMount = (monaco: MonacoInstance): void => {
         endColumn: wordUntil.endColumn,
       };
       const suggestions = buildSqlAutocompleteSuggestions({
-        schemaObjectMap: hasActiveScope ? workbenchStore.schemaObjectMap : {},
+        schemaObjectMap: resolveSchemaObjectMapForAutocomplete(),
         sql: model.getValue(),
         linePrefix,
         wordUntilCursor: wordUntil.word,
+        includeSchemas: false,
       }).map((suggestion) => ({
         label: suggestion.label,
         insertText: suggestion.insertText,

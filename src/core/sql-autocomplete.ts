@@ -37,6 +37,7 @@ type BuildSqlAutocompleteSuggestionsInput = {
   sql: string;
   linePrefix: string;
   wordUntilCursor: string;
+  includeSchemas?: boolean;
 };
 
 function normalizeLookup(value: string): string {
@@ -320,13 +321,15 @@ export function buildSqlAutocompleteSuggestions(
       allowedKinds,
     );
 
-    suggestions.push(
-      ...buildSchemaSuggestions(
-        input.schemaObjectMap,
-        normalizedWord,
-        relationContext ? "3" : "4",
-      ),
-    );
+    if (input.includeSchemas ?? true) {
+      suggestions.push(
+        ...buildSchemaSuggestions(
+          input.schemaObjectMap,
+          normalizedWord,
+          relationContext ? "3" : "4",
+        ),
+      );
+    }
 
     Object.keys(input.schemaObjectMap)
       .sort((left, right) => left.localeCompare(right))
