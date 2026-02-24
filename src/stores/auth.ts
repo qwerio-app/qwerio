@@ -19,8 +19,12 @@ type GithubCallbackParams = {
 };
 
 function normalizeAuthenticatedUser(user: AuthenticatedUser): AuthenticatedUser {
+  const avatarUrl =
+    typeof user.avatarUrl === "string" ? user.avatarUrl.trim() : "";
+
   return {
     ...user,
+    avatarUrl: avatarUrl.length > 0 ? avatarUrl : null,
     subscriptions: Array.isArray(user.subscriptions) ? user.subscriptions : [],
   };
 }
@@ -99,6 +103,7 @@ export const useAuthStore = defineStore("auth", () => {
         id: "",
         email: null,
         displayName: null,
+        avatarUrl: null,
         subscriptions: [],
       },
     };

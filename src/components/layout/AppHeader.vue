@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
+import { md5 } from "../../lib/md5";
 import { getRuntimeMode } from "../../core/query-engine-service";
 import { useAppTabsStore, type AppTab } from "../../stores/app-tabs";
 import { useAuthStore } from "../../stores/auth";
@@ -37,7 +38,50 @@ const authError = ref("");
 const isRequestingOtp = ref(false);
 const isVerifyingOtp = ref(false);
 const isStartingGithub = ref(false);
-const userAvatarUrl = ref<string | null>(null);
+const hasProviderAvatarLoadError = ref(false);
+const hasGravatarLoadError = ref(false);
+
+const normalizedUserEmail = computed(
+  () => authStore.currentUser?.email?.trim().toLowerCase() ?? "",
+);
+
+const providerAvatarUrl = computed(() => {
+  const value = authStore.currentUser?.avatarUrl?.trim();
+  return value && value.length > 0 ? value : null;
+});
+
+const gravatarAvatarUrl = computed(() => {
+  if (!normalizedUserEmail.value) {
+    return null;
+  }
+
+  const hash = md5(normalizedUserEmail.value);
+  return `https://www.gravatar.com/avatar/${hash}?d=404&s=128`;
+});
+
+const activeAvatarSource = computed<"provider" | "gravatar" | null>(() => {
+  if (providerAvatarUrl.value && !hasProviderAvatarLoadError.value) {
+    return "provider";
+  }
+
+  if (gravatarAvatarUrl.value && !hasGravatarLoadError.value) {
+    return "gravatar";
+  }
+
+  return null;
+});
+
+const activeAvatarUrl = computed(() => {
+  if (activeAvatarSource.value === "provider") {
+    return providerAvatarUrl.value;
+  }
+
+  if (activeAvatarSource.value === "gravatar") {
+    return gravatarAvatarUrl.value;
+  }
+
+  return null;
+});
 
 const userLabel = computed(() => {
   if (authStore.currentUser?.displayName) {
@@ -62,6 +106,22 @@ const hasEligibleTeamSubscription = computed(() =>
       subscription.type === "team" &&
       (subscription.teamId ?? "").trim().length === 0,
   ),
+);
+
+watch(
+  providerAvatarUrl,
+  () => {
+    hasProviderAvatarLoadError.value = false;
+  },
+  { immediate: true },
+);
+
+watch(
+  gravatarAvatarUrl,
+  () => {
+    hasGravatarLoadError.value = false;
+  },
+  { immediate: true },
 );
 
 function toQueryRoutePath(queryTabId: string): string {
@@ -202,6 +262,17 @@ async function closeWindow(): Promise<void> {
 function handleProfileButtonClick(): void {
   isProfileMenuOpen.value = !isProfileMenuOpen.value;
   authError.value = "";
+}
+
+function handleAvatarLoadError(): void {
+  if (activeAvatarSource.value === "provider") {
+    hasProviderAvatarLoadError.value = true;
+    return;
+  }
+
+  if (activeAvatarSource.value === "gravatar") {
+    hasGravatarLoadError.value = true;
+  }
 }
 
 function closeProfileMenu(): void {
@@ -466,14 +537,15 @@ async function closeTab(tab: AppTab): Promise<void> {
           @click="handleProfileButtonClick"
         >
           <img
-            v-if="userAvatarUrl"
-            :src="userAvatarUrl"
+            v-if="activeAvatarUrl"
+            :src="activeAvatarUrl"
             alt="User avatar"
-            class="size-5 rounded-full object-cover"
+            class="size-full object-cover"
+            @error="handleAvatarLoadError"
           />
           <span
             v-else-if="authStore.isAuthenticated && userInitial"
-            class="inline-flex size-5 items-center justify-center rounded-full border border-[var(--chrome-border)] bg-[#141b2a] text-[10px] font-semibold text-[var(--chrome-ink)]"
+            class="inline-flex size-full items-center justify-center bg-[#141b2a] text-[10px] font-semibold text-[var(--chrome-ink)]"
           >
             {{ userInitial }}
           </span>

@@ -78,11 +78,13 @@ function toAuthenticatedUser(value: unknown): AuthenticatedUser | null {
 
   const email = toStringOrNull(record.email);
   const displayName = toStringOrNull(record.displayName);
+  const avatarUrl = toStringOrNull(record.avatarUrl);
 
   return {
     id,
     email,
     displayName,
+    avatarUrl,
     subscriptions: toSubscriptions(record.subscriptions),
   };
 }
@@ -125,6 +127,7 @@ export function toAuthSession(result: AuthResult): AuthSession {
     expiresAt: result.expiresAt,
     user: {
       ...result.user,
+      avatarUrl: toStringOrNull(result.user.avatarUrl),
       subscriptions: Array.isArray(result.user.subscriptions)
         ? result.user.subscriptions
         : [],
@@ -140,6 +143,7 @@ function toSerializableAuthSession(session: AuthSession): AuthSession {
       id: session.user.id,
       email: session.user.email,
       displayName: session.user.displayName,
+      avatarUrl: session.user.avatarUrl,
       subscriptions: session.user.subscriptions.map((subscription) => ({
         id: subscription.id,
         type: subscription.type,
