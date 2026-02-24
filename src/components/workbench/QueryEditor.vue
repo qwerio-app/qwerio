@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount } from "vue";
-import MonacoEditor from "@guolao/vue-monaco-editor";
 import type { MonacoEditor as MonacoInstance } from "@guolao/vue-monaco-editor";
-import { Bot, Play, Save, Wand2 } from "lucide-vue-next";
+import MonacoEditor from "@guolao/vue-monaco-editor";
+import { Bot, ChevronDown, Play, Save, Wand2 } from "lucide-vue-next";
 import type {
   IDisposable,
   IPosition,
   editor as MonacoEditorApi,
 } from "monaco-editor";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { buildSqlAutocompleteSuggestions } from "../../core/sql-autocomplete";
 import { useConnectionsStore } from "../../stores/connections";
 import { useWorkbenchStore } from "../../stores/workbench";
@@ -28,6 +28,8 @@ const emit = defineEmits<{
 const connectionsStore = useConnectionsStore();
 const workbenchStore = useWorkbenchStore();
 let completionProvider: IDisposable | null = null;
+
+const isRunMenuOpen = ref(false);
 
 const sqlValue = computed({
   get: () => props.modelValue,
@@ -51,6 +53,14 @@ const editorOptions = {
 };
 
 const monacoTheme = "qwerio-dark";
+
+function runQuery(): void {
+  if (props.isRunning) {
+    return;
+  }
+
+  emit("run");
+}
 
 const handleBeforeMount = (monaco: MonacoInstance): void => {
   monaco.editor.defineTheme(monacoTheme, {
@@ -122,6 +132,18 @@ const handleBeforeMount = (monaco: MonacoInstance): void => {
   });
 };
 
+const handleEditorMount = (
+  editor: MonacoEditorApi.IStandaloneCodeEditor,
+  monaco: MonacoInstance,
+): void => {
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+    runQuery();
+  });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.NumpadEnter, () => {
+    runQuery();
+  });
+};
+
 onBeforeUnmount(() => {
   completionProvider?.dispose();
   completionProvider = null;
@@ -142,7 +164,7 @@ onBeforeUnmount(() => {
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="chrome-btn inline-flex items-center gap-1"
+          class="chrome-btn inline-flex h-7 items-center gap-1"
           :disabled="isSaving || !canSave"
           @click="emit('save')"
         >
@@ -150,33 +172,65 @@ onBeforeUnmount(() => {
           {{ isSaving ? "Saving" : "Save" }}
         </button>
 
-        <button
-          type="button"
-          class="chrome-btn inline-flex items-center gap-1"
-          @click="emit('format')"
-        >
-          <Wand2 :size="12" />
-          Format
-        </button>
+        <div ref="runMenuRootElement" class="relative inline-flex items-center">
+          <button
+            type="button"
+            class="chrome-btn inline-flex h-7 items-center gap-1 !rounded-r-none !border-[var(--chrome-red)] !bg-transparent !py-0 !text-[var(--chrome-ink)] hover:!bg-[rgba(255,82,82,0.12)]"
+            :disabled="isRunning"
+            title="Run selection or statement at cursor (Ctrl/Cmd+Enter)"
+            @click="runQuery"
+          >
+            <Play :size="12" />
+            {{ isRunning ? "Running" : "Run" }}
+          </button>
 
-        <button
-          type="button"
-          class="chrome-btn inline-flex items-center gap-1"
-          disabled
-        >
-          <Bot :size="12" />
-          Explain
-        </button>
+          <button
+            type="button"
+            class="chrome-btn inline-flex h-7 items-center !rounded-l-none !border-l-0 border-l-[var(--chrome-red)] !border-[var(--chrome-red)] !bg-transparent !px-2 !py-0 !text-[var(--chrome-ink)] hover:!bg-[rgba(255,82,82,0.12)]"
+            aria-label="Open run actions"
+            aria-haspopup="menu"
+            :aria-expanded="isRunMenuOpen"
+            @click="isRunMenuOpen = !isRunMenuOpen"
+          >
+            <ChevronDown :size="12" />
+          </button>
 
-        <button
-          type="button"
-          class="chrome-btn chrome-btn-primary inline-flex items-center gap-1"
-          :disabled="isRunning"
-          @click="emit('run')"
-        >
-          <Play :size="12" />
-          {{ isRunning ? "Running" : "Run" }}
-        </button>
+          <div
+            v-if="isRunMenuOpen"
+            class="panel-tight absolute right-0 top-[calc(100%+0.35rem)] z-20 min-w-40 p-1"
+            role="menu"
+          >
+            <button
+              type="button"
+              class="chrome-btn inline-flex w-full items-center justify-start gap-1 text-left"
+              disabled
+              role="menuitem"
+            >
+              <Play :size="12" class="mr-1 inline-block" />
+              Run Script
+            </button>
+
+            <button
+              type="button"
+              class="chrome-btn mt-1 inline-flex w-full items-center justify-start gap-1 text-left"
+              disabled
+              role="menuitem"
+            >
+              <Bot :size="12" class="mr-1 inline-block" />
+              Explain
+            </button>
+
+            <button
+              type="button"
+              class="chrome-btn mt-1 inline-flex w-full items-center justify-start gap-1 text-left"
+              role="menuitem"
+              @click="emit('format')"
+            >
+              <Wand2 :size="12" class="mr-1 inline-block" />
+              Format
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -188,6 +242,7 @@ onBeforeUnmount(() => {
         :theme="monacoTheme"
         :options="editorOptions"
         @beforeMount="handleBeforeMount"
+        @mount="handleEditorMount"
       />
     </div>
   </section>
