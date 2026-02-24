@@ -8,10 +8,12 @@ import {
   type StoredAppQueryTab,
   type StoredAppTableTab,
 } from "../core/storage/indexed-db";
+import { useConnectionsStore } from "./connections";
 
 export type QueryAppTab = {
   id: string;
   kind: "query";
+  connectionId: string;
   title: string;
   routePath: string;
   queryTabId: string;
@@ -20,6 +22,7 @@ export type QueryAppTab = {
 export type PageAppTab = {
   id: string;
   kind: "page";
+  connectionId: string;
   title: string;
   routePath: string;
   pageKey: string;
@@ -45,6 +48,7 @@ type OpenPageTabInput = {
   routePath: string;
   activate?: boolean;
 };
+
 const ACTIVE_APP_TAB_ID_KEY = "variables.appTabs.activeTabId";
 
 function toQueryAppTabId(queryTabId: string): string {
@@ -71,14 +75,35 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
   const tabs = ref<AppTab[]>([]);
   const activeTabId = ref<string | null>(null);
   const hasHydrated = ref(false);
+  const hydratedConnectionId = ref<string | null>(null);
 
-  void (async () => {
-    const storedTabs = await loadAppTabsFromStorage();
+  const connectionStore = useConnectionsStore();
+  let hydrationRequestId = 0;
+  let hasLoadedActiveTabId = false;
+
+  async function hydrateTabsForConnection(connectionId: string | null): Promise<void> {
+    const requestId = ++hydrationRequestId;
+
+    if (!hasLoadedActiveTabId) {
+      activeTabId.value = await getVariableValue<string | null>(
+        ACTIVE_APP_TAB_ID_KEY,
+        null,
+      );
+      hasLoadedActiveTabId = true;
+    }
+
+    const storedTabs = await loadAppTabsFromStorage(connectionId);
+
+    if (requestId !== hydrationRequestId) {
+      return;
+    }
+
     tabs.value = storedTabs.map((tab) =>
       tab.type === "query"
         ? {
             id: toQueryAppTabId(tab.queryTabId),
             kind: "query",
+            connectionId: tab.connectionId,
             title: tab.title,
             routePath: tab.routePath,
             queryTabId: tab.queryTabId,
@@ -86,24 +111,41 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
         : {
             id: toPageAppTabId(tab.pageKey),
             kind: "page",
+            connectionId: tab.connectionId,
             title: tab.title,
             routePath: tab.routePath,
             pageKey: tab.pageKey,
           },
     );
 
-    activeTabId.value = await getVariableValue<string | null>(
-      ACTIVE_APP_TAB_ID_KEY,
-      null,
-    );
     ensureActiveTab();
+    hydratedConnectionId.value = connectionId;
     hasHydrated.value = true;
-  })();
+  }
+
+  watch(
+    () =>
+      [connectionStore.hasHydrated, connectionStore.activeConnectionId] as const,
+    ([connectionsHydrated, connectionId]) => {
+      if (!connectionsHydrated) {
+        return;
+      }
+
+      void hydrateTabsForConnection(connectionId);
+    },
+    { immediate: true },
+  );
 
   watch(
     tabs,
     (nextTabs) => {
-      if (!hasHydrated.value) {
+      const activeConnectionId = connectionStore.activeConnectionId;
+
+      if (
+        !hasHydrated.value ||
+        !activeConnectionId ||
+        hydratedConnectionId.value !== activeConnectionId
+      ) {
         return;
       }
 
@@ -113,6 +155,7 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
             ? {
                 type: "query",
                 id: tab.id,
+                connectionId: activeConnectionId,
                 title: tab.title,
                 routePath: tab.routePath,
                 queryTabId: tab.queryTabId,
@@ -120,13 +163,14 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
             : {
                 type: "table",
                 id: tab.id,
+                connectionId: activeConnectionId,
                 title: tab.title,
                 routePath: tab.routePath,
                 pageKey: tab.pageKey,
               },
       );
 
-      void saveAppTabsToStorage(storedTabs);
+      void saveAppTabsToStorage(activeConnectionId, storedTabs);
     },
     { deep: true },
   );
@@ -158,7 +202,13 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
 
   ensureActiveTab();
 
-  const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null);
+  const activeTab = computed(
+    () => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null,
+  );
+
+  function resolveScopeConnectionId(): string {
+    return connectionStore.activeConnectionId ?? "";
+  }
 
   function setActiveTab(tabId: string): void {
     if (!tabs.value.some((tab) => tab.id === tabId)) {
@@ -173,12 +223,16 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
   }
 
   function openQueryTab({ queryTabId, title, routePath, activate = true }: OpenQueryTabInput): QueryAppTab {
-    let tab = tabs.value.find((item): item is QueryAppTab => item.kind === "query" && item.queryTabId === queryTabId);
+    let tab = tabs.value.find(
+      (item): item is QueryAppTab =>
+        item.kind === "query" && item.queryTabId === queryTabId,
+    );
 
     if (!tab) {
       tab = {
         id: toQueryAppTabId(queryTabId),
         kind: "query",
+        connectionId: resolveScopeConnectionId(),
         title,
         routePath,
         queryTabId,
@@ -203,12 +257,15 @@ export const useAppTabsStore = defineStore("app-tabs", () => {
       throw new Error(`Unsupported page tab key: ${pageKey}`);
     }
 
-    let tab = tabs.value.find((item): item is PageAppTab => item.kind === "page" && item.pageKey === pageKey);
+    let tab = tabs.value.find(
+      (item): item is PageAppTab => item.kind === "page" && item.pageKey === pageKey,
+    );
 
     if (!tab) {
       tab = {
         id: toPageAppTabId(pageKey),
         kind: "page",
+        connectionId: resolveScopeConnectionId(),
         title,
         routePath,
         pageKey,

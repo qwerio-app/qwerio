@@ -24,6 +24,7 @@ import {
 
 export type QueryTab = {
   id: string;
+  connectionId: string;
   title: string;
   sql: string;
   savedQueryId?: string;
@@ -88,33 +89,38 @@ function getNextQueryIndex(tabs: QueryTab[]): number {
   return maxIndex + 1;
 }
 
+function createFallbackQueryTab(connectionId: string): QueryTab {
+  return {
+    id: createNanoId(),
+    connectionId,
+    title: "Query 1",
+    sql: DEFAULT_SQL,
+  };
+}
+
 export const useWorkbenchStore = defineStore("workbench", () => {
-  const tabs = ref<QueryTab[]>([
-    {
-      id: createNanoId(),
-      title: "Query 1",
-      sql: DEFAULT_SQL,
-    },
-  ]);
+  const tabs = ref<QueryTab[]>([]);
   const tableTabs = ref<TableTab[]>([]);
-  const activeTabId = ref<string>(tabs.value[0].id);
+  const activeTabId = ref<string>("");
   const hasHydrated = ref(false);
   const isRunning = ref(false);
   const errorMessage = ref<string>("");
   const schemaNames = ref<Array<{ name: string }>>([]);
   const tableMap = ref<TableMap>({});
   const schemaObjectMap = ref<SchemaObjectsBySchema>({});
-  const resultByTabId = ref<Record<string, QueryResult | null>>(
-    Object.fromEntries(tabs.value.map((tab) => [tab.id, null])),
-  );
-  const paginationByTabId = ref<Record<string, QueryPaginationState>>(
-    Object.fromEntries(
-      tabs.value.map((tab) => [tab.id, getDefaultPaginationState()]),
-    ),
-  );
+  const resultByTabId = ref<Record<string, QueryResult | null>>({});
+  const paginationByTabId = ref<Record<string, QueryPaginationState>>({});
+  const hydratedConnectionId = ref<string | null>(null);
 
-  const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null);
-  const activeResult = computed(() => (activeTab.value ? resultByTabId.value[activeTab.value.id] ?? null : null));
+  const connectionStore = useConnectionsStore();
+  let hydrationRequestId = 0;
+
+  const activeTab = computed(() =>
+    tabs.value.find((tab) => tab.id === activeTabId.value) ?? null,
+  );
+  const activeResult = computed(() =>
+    activeTab.value ? resultByTabId.value[activeTab.value.id] ?? null : null,
+  );
   const activePagination = computed<QueryPaginationState>(() =>
     activeTab.value
       ? paginationByTabId.value[activeTab.value.id] ??
@@ -122,10 +128,28 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       : getDefaultPaginationState(),
   );
 
-  void (async () => {
-    const storedTabs = await loadWorkbenchTabsFromStorage();
+  function resolveScopeConnectionId(): string {
+    return connectionStore.activeConnectionId ?? "";
+  }
+
+  async function hydrateTabsForConnection(connectionId: string | null): Promise<void> {
+    const requestId = ++hydrationRequestId;
+    const scopedConnectionId = connectionId ?? "";
+
+    const storedTabs = connectionId
+      ? await loadWorkbenchTabsFromStorage(connectionId)
+      : {
+          queryTabs: [] as StoredWorkbenchQueryTab[],
+          tableTabs: [] as StoredWorkbenchTableTab[],
+        };
+
+    if (requestId !== hydrationRequestId) {
+      return;
+    }
+
     tabs.value = storedTabs.queryTabs.map((tab) => ({
       id: tab.id,
+      connectionId: tab.connectionId,
       title: tab.title,
       sql: tab.sql,
       savedQueryId: tab.savedQueryId,
@@ -140,29 +164,32 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     }));
 
     if (tabs.value.length === 0) {
-      tabs.value = [
-        {
-          id: createNanoId(),
-          title: "Query 1",
-          sql: DEFAULT_SQL,
-        },
-      ];
+      tabs.value = [createFallbackQueryTab(scopedConnectionId)];
     }
 
-    activeTabId.value = tabs.value[0].id;
-
+    activeTabId.value = tabs.value[0]?.id ?? "";
+    hydratedConnectionId.value = connectionId;
     hasHydrated.value = true;
-  })();
+  }
+
+  watch(
+    () =>
+      [connectionStore.hasHydrated, connectionStore.activeConnectionId] as const,
+    ([connectionsHydrated, connectionId]) => {
+      if (!connectionsHydrated) {
+        return;
+      }
+
+      void hydrateTabsForConnection(connectionId);
+    },
+    { immediate: true },
+  );
 
   watch(
     () => tabs.value.map((tab) => tab.id),
     (tabIds) => {
       if (tabIds.length === 0) {
-        const fallbackTab: QueryTab = {
-          id: createNanoId(),
-          title: "Query 1",
-          sql: DEFAULT_SQL,
-        };
+        const fallbackTab = createFallbackQueryTab(resolveScopeConnectionId());
         tabs.value = [fallbackTab];
         activeTabId.value = fallbackTab.id;
         resultByTabId.value = { [fallbackTab.id]: null };
@@ -192,30 +219,40 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   );
 
   watch(
-    [tabs, tableTabs],
-    ([queryTabs, nextTableTabs]) => {
-      if (!hasHydrated.value) {
+    [tabs, tableTabs, () => connectionStore.activeConnectionId],
+    ([queryTabs, nextTableTabs, activeConnectionId]) => {
+      if (
+        !hasHydrated.value ||
+        !activeConnectionId ||
+        hydratedConnectionId.value !== activeConnectionId
+      ) {
         return;
       }
 
-      const storedQueryTabs: StoredWorkbenchQueryTab[] = queryTabs.map((tab) => ({
-        type: "query",
-        id: tab.id,
-        title: tab.title,
-        sql: tab.sql,
-        savedQueryId: tab.savedQueryId,
-      }));
-      const storedTableTabs: StoredWorkbenchTableTab[] = nextTableTabs.map((tab) => ({
-        type: "table",
-        id: tab.id,
-        title: tab.title,
-        connectionId: tab.connectionId,
-        schemaName: tab.schemaName,
-        tableName: tab.tableName,
-        objectType: tab.objectType ?? "table",
-      }));
+      const storedQueryTabs: StoredWorkbenchQueryTab[] = queryTabs.map(
+        (tab) => ({
+          type: "query",
+          id: tab.id,
+          connectionId: activeConnectionId,
+          title: tab.title,
+          sql: tab.sql,
+          savedQueryId: tab.savedQueryId,
+        }),
+      );
+      const storedTableTabs: StoredWorkbenchTableTab[] = nextTableTabs.map(
+        (tab) => ({
+          type: "table",
+          id: tab.id,
+          title: tab.title,
+          connectionId: tab.connectionId,
+          schemaName: tab.schemaName,
+          tableName: tab.tableName,
+          objectType: tab.objectType ?? "table",
+        }),
+      );
 
       void saveWorkbenchTabsToStorage({
+        connectionId: activeConnectionId,
         queryTabs: storedQueryTabs,
         tableTabs: storedTableTabs,
       });
@@ -228,8 +265,10 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     sql: string;
     savedQueryId?: string;
   }): QueryTab {
+    const connectionId = resolveScopeConnectionId();
     const tab: QueryTab = {
       id: createNanoId(),
+      connectionId,
       title: input.title,
       sql: input.sql,
       savedQueryId: input.savedQueryId,
@@ -402,16 +441,15 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       return;
     }
 
-    const connectionStore = useConnectionsStore();
     const activeConnection = connectionStore.activeProfile;
     const language =
       activeConnection?.target.dialect === "mysql"
         ? "mysql"
         : activeConnection?.target.dialect === "sqlite"
           ? "sqlite"
-        : activeConnection?.target.dialect === "sqlserver"
-          ? "transactsql"
-          : "postgresql";
+          : activeConnection?.target.dialect === "sqlserver"
+            ? "transactsql"
+            : "postgresql";
 
     tab.sql = format(tab.sql, { language });
   }
@@ -422,7 +460,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   }
 
   function resolveConnectionById(connectionId: string): ConnectionProfile | null {
-    const connectionStore = useConnectionsStore();
     return (
       connectionStore.profiles.find((profile) => profile.id === connectionId) ??
       null
@@ -515,7 +552,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
       return;
     }
 
-    const connectionStore = useConnectionsStore();
     const activeConnection = connectionStore.activeProfile;
 
     if (!activeConnection) {
@@ -561,7 +597,6 @@ export const useWorkbenchStore = defineStore("workbench", () => {
   }
 
   async function refreshSchema(): Promise<void> {
-    const connectionStore = useConnectionsStore();
     const activeConnection = connectionStore.activeProfile;
 
     if (!activeConnection) {

@@ -7,6 +7,7 @@ const TABLE_OBJECT_TYPE_SQL_PREFIX = "__qwerio_object_type__:";
 export type StoredWorkbenchQueryTab = {
   type: "query";
   id: string;
+  connectionId: string;
   title: string;
   sql: string;
   savedQueryId?: string;
@@ -25,6 +26,7 @@ export type StoredWorkbenchTableTab = {
 export type StoredAppQueryTab = {
   type: "query";
   id: string;
+  connectionId: string;
   title: string;
   routePath: string;
   queryTabId: string;
@@ -33,6 +35,7 @@ export type StoredAppQueryTab = {
 export type StoredAppTableTab = {
   type: "table";
   id: string;
+  connectionId: string;
   title: string;
   routePath: string;
   pageKey: string;
@@ -332,20 +335,30 @@ export async function saveConnectionsToStorage(
   });
 }
 
-export async function loadWorkbenchTabsFromStorage(): Promise<{
+export async function loadWorkbenchTabsFromStorage(connectionId: string | null): Promise<{
   queryTabs: StoredWorkbenchQueryTab[];
   tableTabs: StoredWorkbenchTableTab[];
 }> {
+  if (!connectionId) {
+    return {
+      queryTabs: [],
+      tableTabs: [],
+    };
+  }
+
   return readFromDatabase(
     async (database) => {
-      const records = await database.tabs.orderBy("order").toArray();
+      const records = (await database.tabs
+        .where("connectionId")
+        .equals(connectionId)
+        .toArray()).sort((left, right) => left.order - right.order);
 
       const queryTabs = records
         .filter((record): record is StoredTabRecord => record.type === "query")
-        .sort((left, right) => left.order - right.order)
         .map((tab) => ({
           type: "query" as const,
           id: tab.tabId,
+          connectionId,
           title: tab.title,
           sql: tab.sql,
           savedQueryId:
@@ -357,7 +370,6 @@ export async function loadWorkbenchTabsFromStorage(): Promise<{
 
       const tableTabs = records
         .filter(isStoredTableRecordWithConnection)
-        .sort((left, right) => left.order - right.order)
         .map((tab) => {
           const parsedTitle = parseTableTitle(tab.title);
 
@@ -385,13 +397,23 @@ export async function loadWorkbenchTabsFromStorage(): Promise<{
 }
 
 export async function saveWorkbenchTabsToStorage(input: {
+  connectionId: string | null;
   queryTabs: StoredWorkbenchQueryTab[];
   tableTabs: StoredWorkbenchTableTab[];
 }): Promise<void> {
+  const scopedConnectionId = input.connectionId;
+
+  if (!scopedConnectionId) {
+    return;
+  }
+
   const timestamp = nowIsoTimestamp();
   await writeToDatabase(async (database) => {
     await database.transaction("rw", database.tabs, async () => {
-      const existingRecords = await database.tabs.toArray();
+      const existingRecords = await database.tabs
+        .where("connectionId")
+        .equals(scopedConnectionId)
+        .toArray();
       const existingByTabKey = new Map(
         existingRecords.map((record) => [
           toTabRecordKey(record.type, record.tabId),
@@ -407,8 +429,8 @@ export async function saveWorkbenchTabsToStorage(input: {
           return {
             id: existingRecord?.id ?? toTabRecordKey("query", tab.id),
             type: "query" as const,
-            order: existingRecord?.order ?? order,
-            connectionId: null,
+            order,
+            connectionId: scopedConnectionId,
             tabId: tab.id,
             path: existingRecord?.path ?? toQueryPath(tab.id),
             sql: tab.sql,
@@ -424,7 +446,7 @@ export async function saveWorkbenchTabsToStorage(input: {
           return {
             id: existingRecord?.id ?? toTabRecordKey("table", tab.id),
             type: "table" as const,
-            order: existingRecord?.order ?? input.queryTabs.length + order,
+            order: input.queryTabs.length + order,
             connectionId: tab.connectionId,
             tabId: tab.id,
             path: existingRecord?.path ?? toTablePath(tab.id),
@@ -435,6 +457,17 @@ export async function saveWorkbenchTabsToStorage(input: {
         }),
       ];
 
+      const nextRecordKeys = new Set(
+        nextRecords.map((record) => toTabRecordKey(record.type, record.tabId)),
+      );
+      const staleRecordIds = existingRecords
+        .filter((record) => !nextRecordKeys.has(toTabRecordKey(record.type, record.tabId)))
+        .map((record) => record.id);
+
+      if (staleRecordIds.length > 0) {
+        await database.tabs.bulkDelete(staleRecordIds);
+      }
+
       if (nextRecords.length > 0) {
         await database.tabs.bulkPut(nextRecords);
       }
@@ -442,11 +475,20 @@ export async function saveWorkbenchTabsToStorage(input: {
   });
 }
 
-export async function loadAppTabsFromStorage(): Promise<
+export async function loadAppTabsFromStorage(
+  connectionId: string | null,
+): Promise<
   Array<StoredAppQueryTab | StoredAppTableTab>
 > {
+  if (!connectionId) {
+    return [];
+  }
+
   return readFromDatabase(async (database) => {
-    const records = await database.tabs.orderBy("order").toArray();
+    const records = (await database.tabs
+      .where("connectionId")
+      .equals(connectionId)
+      .toArray()).sort((left, right) => left.order - right.order);
 
     return records
       .filter(
@@ -458,6 +500,7 @@ export async function loadAppTabsFromStorage(): Promise<
           ? {
               type: "query",
               id: tab.id,
+              connectionId,
               title: tab.title,
               routePath: tab.path || toQueryPath(tab.tabId),
               queryTabId: tab.tabId,
@@ -465,6 +508,7 @@ export async function loadAppTabsFromStorage(): Promise<
           : {
               type: "table",
               id: tab.id,
+              connectionId,
               title: tab.title,
               routePath: tab.path || toTablePath(tab.tabId),
               pageKey: toTablePageKey(tab.tabId),
@@ -474,12 +518,22 @@ export async function loadAppTabsFromStorage(): Promise<
 }
 
 export async function saveAppTabsToStorage(
+  connectionId: string | null,
   tabs: Array<StoredAppQueryTab | StoredAppTableTab>,
 ): Promise<void> {
+  const scopedConnectionId = connectionId;
+
+  if (!scopedConnectionId) {
+    return;
+  }
+
   const timestamp = nowIsoTimestamp();
   await writeToDatabase(async (database) => {
     await database.transaction("rw", database.tabs, async () => {
-      const existingRecords = await database.tabs.toArray();
+      const existingRecords = await database.tabs
+        .where("connectionId")
+        .equals(scopedConnectionId)
+        .toArray();
       const existingByTabKey = new Map(
         existingRecords.map((record) => [
           toTabRecordKey(record.type, record.tabId),
@@ -500,10 +554,10 @@ export async function saveAppTabsToStorage(
             toTabRecordKey("query", tabId),
           );
           records.push({
-            id: toTabRecordKey("query", tabId),
+            id: existingRecord?.id ?? toTabRecordKey("query", tabId),
             type: "query",
             order,
-            connectionId: null,
+            connectionId: scopedConnectionId,
             tabId,
             path: tab.routePath || toQueryPath(tabId),
             sql: existingRecord?.type === "query" ? existingRecord.sql : "",
@@ -526,13 +580,10 @@ export async function saveAppTabsToStorage(
           toTabRecordKey("table", tableTabId),
         );
         records.push({
-          id: toTabRecordKey("table", tableTabId),
+          id: existingRecord?.id ?? toTabRecordKey("table", tableTabId),
           type: "table",
           order,
-          connectionId:
-            existingRecord?.type === "table"
-              ? existingRecord.connectionId
-              : null,
+          connectionId: scopedConnectionId,
           tabId: tableTabId,
           path: tab.routePath || toTablePath(tableTabId),
           sql:
@@ -547,7 +598,9 @@ export async function saveAppTabsToStorage(
         });
       });
 
-      await database.tabs.clear();
+      if (existingRecords.length > 0) {
+        await database.tabs.bulkDelete(existingRecords.map((record) => record.id));
+      }
 
       if (records.length > 0) {
         await database.tabs.bulkPut(records);

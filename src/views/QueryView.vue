@@ -152,6 +152,7 @@ async function submitSaveQuery(): Promise<void> {
 
   isSavingQuery.value = true;
   saveModalError.value = "";
+  let hasSaved = false;
 
   try {
     const savedQuery = await savedQueriesStore.saveQuery({
@@ -165,12 +166,16 @@ async function submitSaveQuery(): Promise<void> {
       savedQueryId: savedQuery.id,
       title: savedQuery.name,
     });
-    closeSaveQueryModal();
+    hasSaved = true;
   } catch (error) {
     saveModalError.value =
       error instanceof Error ? error.message : "Unable to save query.";
   } finally {
     isSavingQuery.value = false;
+  }
+
+  if (hasSaved) {
+    closeSaveQueryModal();
   }
 }
 
@@ -198,7 +203,7 @@ function getRouteQueryTabId(): string {
 }
 
 function createRouteQueryTabId(): string {
-  return workbenchStore.addTab().id;
+  return workbenchStore.activeTab?.id ?? workbenchStore.addTab().id;
 }
 
 watch(

@@ -138,14 +138,24 @@ watch(
         typeof route.params.tableTabId === "string"
           ? route.params.tableTabId
           : "";
-      const tableTab = tableTabId
-        ? workbenchStore.getTableTab(tableTabId)
-        : null;
+      const tableTab = tableTabId ? workbenchStore.getTableTab(tableTabId) : null;
+
+      if (!tableTab) {
+        const fallbackQuery = workbenchStore.activeTab ?? workbenchStore.addTab();
+        appTabsStore.openQueryTab({
+          queryTabId: fallbackQuery.id,
+          title: fallbackQuery.title,
+          routePath: toQueryRoutePath(fallbackQuery.id),
+          activate: true,
+        });
+        void router.replace(toQueryRoutePath(fallbackQuery.id));
+        return;
+      }
 
       appTabsStore.openPageTab({
         pageKey: `table:${tableTabId}`,
-        title: tableTab?.title ?? "Table",
-        routePath: tableTabId ? toTableRoutePath(tableTabId) : route.path,
+        title: tableTab.title,
+        routePath: toTableRoutePath(tableTabId),
         activate: true,
       });
       return;
