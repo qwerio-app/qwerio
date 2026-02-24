@@ -263,6 +263,15 @@ function toSerializableConnectionProfile(
 ): ConnectionProfile {
   return {
     ...profile,
+    sync: profile.sync
+      ? {
+          enabled: Boolean(profile.sync.enabled),
+          ...(profile.sync.serverId ? { serverId: profile.sync.serverId } : {}),
+          ...(profile.sync.lastSyncedAt
+            ? { lastSyncedAt: profile.sync.lastSyncedAt }
+            : {}),
+        }
+      : undefined,
     target: {
       ...profile.target,
     },
@@ -308,6 +317,7 @@ export async function loadConnectionsFromStorage(): Promise<
         type: profile.type,
         target: profile.target,
         credentials: profile.credentials,
+        sync: profile.sync,
         showInternalSchemas: profile.showInternalSchemas,
         createdAt: profile.createdAt,
         updatedAt: profile.updatedAt,

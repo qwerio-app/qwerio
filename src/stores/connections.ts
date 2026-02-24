@@ -91,6 +91,31 @@ const newConnectionSchema = z.object({
 type NewConnectionInput = z.infer<typeof newConnectionSchema>;
 const ACTIVE_CONNECTION_ID_KEY = "variables.connections.activeConnectionId";
 
+function normalizeConnectionSync(
+  profile: ConnectionProfile,
+): ConnectionProfile["sync"] {
+  if (!profile.sync) {
+    return {
+      enabled: false,
+    };
+  }
+
+  return {
+    enabled: Boolean(profile.sync.enabled),
+    ...(profile.sync.serverId ? { serverId: profile.sync.serverId } : {}),
+    ...(profile.sync.lastSyncedAt
+      ? { lastSyncedAt: profile.sync.lastSyncedAt }
+      : {}),
+  };
+}
+
+function normalizeStoredProfile(profile: ConnectionProfile): ConnectionProfile {
+  return {
+    ...profile,
+    sync: normalizeConnectionSync(profile),
+  };
+}
+
 export const useConnectionsStore = defineStore("connections", () => {
   const profiles = ref<ConnectionProfile[]>([]);
   const activeConnectionId = ref<string | null>(null);
@@ -102,7 +127,7 @@ export const useConnectionsStore = defineStore("connections", () => {
       getVariableValue<string | null>(ACTIVE_CONNECTION_ID_KEY, null),
     ]);
 
-    profiles.value = storedProfiles;
+    profiles.value = storedProfiles.map((profile) => normalizeStoredProfile(profile));
     activeConnectionId.value = storedActiveConnectionId;
     hasHydrated.value = true;
 
@@ -182,6 +207,9 @@ export const useConnectionsStore = defineStore("connections", () => {
       type: parsed.data.type,
       target: parsed.data.target,
       credentials: parsed.data.credentials,
+      sync: {
+        enabled: false,
+      },
       showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       createdAt: now,
       updatedAt: now,
@@ -225,6 +253,7 @@ export const useConnectionsStore = defineStore("connections", () => {
       type: parsed.data.type,
       target: parsed.data.target,
       credentials: parsed.data.credentials,
+      sync: normalizeConnectionSync(existingProfile),
       showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
       updatedAt: new Date().toISOString(),
     };
@@ -251,6 +280,37 @@ export const useConnectionsStore = defineStore("connections", () => {
     activeConnectionId.value = id;
   }
 
+  function setConnectionSyncMetadata(
+    id: string,
+    sync: ConnectionProfile["sync"],
+  ): ConnectionProfile | null {
+    const index = profiles.value.findIndex((profile) => profile.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const current = profiles.value[index];
+    const nextProfile: ConnectionProfile = {
+      ...current,
+      sync: sync
+        ? {
+            enabled: Boolean(sync.enabled),
+            ...(sync.serverId ? { serverId: sync.serverId } : {}),
+            ...(sync.lastSyncedAt ? { lastSyncedAt: sync.lastSyncedAt } : {}),
+          }
+        : {
+            enabled: false,
+          },
+    };
+
+    profiles.value = profiles.value.map((profile) =>
+      profile.id === id ? nextProfile : profile,
+    );
+
+    return nextProfile;
+  }
+
   return {
     profiles,
     hasHydrated,
@@ -260,5 +320,6 @@ export const useConnectionsStore = defineStore("connections", () => {
     updateConnection,
     removeConnection,
     setActiveConnection,
+    setConnectionSyncMetadata,
   };
 });

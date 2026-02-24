@@ -75,6 +75,11 @@ export type ConnectionProfile = {
   type: ConnectionProfileType;
   target: ConnectionTarget;
   credentials: ConnectionCredentials;
+  sync?: {
+    enabled: boolean;
+    serverId?: string;
+    lastSyncedAt?: string;
+  };
   showInternalSchemas?: boolean;
   createdAt: string;
   updatedAt: string;

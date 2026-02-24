@@ -24,6 +24,7 @@ import type {
   ConnectionTarget,
   DbDialect,
 } from "../core/types";
+import { useConnectionSyncStore } from "../stores/connection-sync";
 import { useConnectionsStore } from "../stores/connections";
 import { useVaultStore } from "../stores/vault";
 
@@ -37,6 +38,7 @@ type TargetWithPassword = {
 };
 
 const store = useConnectionsStore();
+const connectionSyncStore = useConnectionSyncStore();
 const vaultStore = useVaultStore();
 const route = useRoute();
 const router = useRouter();
@@ -128,6 +130,24 @@ const shouldShowPasswordStorage = computed(() => {
 
   return true;
 });
+
+const needsCredentialUpgrade = computed(
+  () => connectionSyncStore.upgradeRequiredConnectionIds.length > 0,
+);
+
+const pendingServerImportCount = computed(
+  () => connectionSyncStore.pendingServerConnections.length,
+);
+
+const upgradeConnectionNames = computed(() =>
+  connectionSyncStore.upgradeRequiredConnectionIds
+    .map(
+      (connectionId) =>
+        store.profiles.find((profile) => profile.id === connectionId)?.name ??
+        connectionId,
+    )
+    .join(", "),
+);
 
 watch(
   () => form.dialect,
@@ -696,14 +716,52 @@ async function submitConnection(): Promise<void> {
   }
 }
 
-function removeConnection(id: string): void {
+async function removeConnection(id: string): Promise<void> {
   feedback.value = "";
+  const profile = store.profiles.find((entry) => entry.id === id);
+
+  if (profile) {
+    await connectionSyncStore.queueDeletionForConnection(profile);
+  }
+
   store.removeConnection(id);
   clearSessionConnectionPassword(id);
 
   if (editingConnectionId.value === id) {
     isModalOpen.value = false;
     resetForm();
+  }
+}
+
+async function syncConnectionsNow(): Promise<void> {
+  feedback.value = "";
+  await connectionSyncStore.syncNow();
+}
+
+async function handleConnectionSyncToggle(
+  profile: ConnectionProfile,
+  event: Event,
+): Promise<void> {
+  const target = event.target as HTMLInputElement | null;
+  const enabled = Boolean(target?.checked);
+  await connectionSyncStore.setConnectionSyncEnabled(profile.id, enabled);
+}
+
+function openFirstUpgradeConnection(): void {
+  const firstConnectionId = connectionSyncStore.upgradeRequiredConnectionIds[0];
+
+  if (!firstConnectionId) {
+    return;
+  }
+
+  openEditConnectionModal(firstConnectionId);
+}
+
+function importAllServerConnections(): void {
+  const imported = connectionSyncStore.importServerConnections();
+
+  if (imported > 0) {
+    feedback.value = `${imported} server connection${imported === 1 ? "" : "s"} imported locally.`;
   }
 }
 
@@ -756,15 +814,27 @@ onMounted(() => {
           </p>
         </div>
 
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-red)]"
-          :disabled="isSubmitting || isTesting"
-          @click="openNewConnectionModal"
-        >
-          <Plus :size="13" class="text-[var(--chrome-red)]" />
-          New connection
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-yellow)]"
+            :disabled="isSubmitting || isTesting || connectionSyncStore.isSyncing"
+            @click="syncConnectionsNow"
+          >
+            <FlaskConical :size="13" class="text-[var(--chrome-yellow)]" />
+            {{ connectionSyncStore.isSyncing ? "Syncing..." : "Sync now" }}
+          </button>
+
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-red)]"
+            :disabled="isSubmitting || isTesting"
+            @click="openNewConnectionModal"
+          >
+            <Plus :size="13" class="text-[var(--chrome-red)]" />
+            New connection
+          </button>
+        </div>
       </div>
 
       <p
@@ -773,6 +843,66 @@ onMounted(() => {
       >
         {{ feedback }}
       </p>
+      <p
+        v-if="connectionSyncStore.syncError"
+        class="mt-2 text-xs text-[var(--chrome-red)]"
+      >
+        {{ connectionSyncStore.syncError }}
+      </p>
+      <p
+        v-if="connectionSyncStore.syncMessage"
+        class="mt-2 text-xs text-[var(--chrome-ink-dim)]"
+      >
+        {{ connectionSyncStore.syncMessage }}
+      </p>
+      <p
+        v-if="!connectionSyncStore.isAuthenticated"
+        class="mt-2 text-xs text-[var(--chrome-ink-dim)]"
+      >
+        Sign in and keep a premium subscription active to sync connections.
+      </p>
+      <p
+        v-else-if="!connectionSyncStore.isPremiumEligible"
+        class="mt-2 text-xs text-[var(--chrome-ink-dim)]"
+      >
+        Connection sync requires an active or trialing premium subscription.
+      </p>
+
+      <div
+        v-if="needsCredentialUpgrade"
+        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-2"
+      >
+        <p class="text-xs text-[var(--chrome-yellow)]">
+          Upgrade plaintext password connections before sync: {{ upgradeConnectionNames }}
+        </p>
+        <button
+          type="button"
+          class="chrome-btn"
+          :disabled="isSubmitting || isTesting"
+          @click="openFirstUpgradeConnection"
+        >
+          Upgrade now
+        </button>
+      </div>
+
+      <div
+        v-if="pendingServerImportCount > 0"
+        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-2"
+      >
+        <p class="text-xs text-[var(--chrome-ink)]">
+          {{ pendingServerImportCount }} synced server connection{{
+            pendingServerImportCount === 1 ? "" : "s"
+          }} can be imported on this device.
+        </p>
+        <button
+          type="button"
+          class="chrome-btn"
+          :disabled="isSubmitting || isTesting"
+          @click="importAllServerConnections"
+        >
+          Import all
+        </button>
+      </div>
 
       <section
         v-for="(section, sectionIndex) in sections"
@@ -839,6 +969,25 @@ onMounted(() => {
             </p>
             <p class="mt-1 text-[11px] text-[var(--chrome-ink-muted)]">
               {{ connectionCredentialLabel(profile) }}
+            </p>
+            <label class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-[var(--chrome-ink-dim)]">
+              <input
+                type="checkbox"
+                class="size-3.5 accent-[var(--chrome-yellow)]"
+                :checked="Boolean(profile.sync?.enabled)"
+                :disabled="isSubmitting || isTesting || connectionSyncStore.isSyncing"
+                @change="handleConnectionSyncToggle(profile, $event)"
+              />
+              Sync this connection
+            </label>
+            <p class="mt-1 text-[11px] text-[var(--chrome-ink-muted)]">
+              {{
+                profile.sync?.enabled
+                  ? profile.sync?.serverId
+                    ? "Synced with cloud"
+                    : "Sync enabled (pending first upload)"
+                  : "Local only"
+              }}
             </p>
 
             <div
