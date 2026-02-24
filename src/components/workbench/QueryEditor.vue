@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount } from "vue";
 import MonacoEditor from "@guolao/vue-monaco-editor";
 import type { MonacoEditor as MonacoInstance } from "@guolao/vue-monaco-editor";
 import { Bot, Play, Save, Wand2 } from "lucide-vue-next";
+import type {
+  IDisposable,
+  IPosition,
+  editor as MonacoEditorApi,
+} from "monaco-editor";
+import { buildSqlAutocompleteSuggestions } from "../../core/sql-autocomplete";
+import { useConnectionsStore } from "../../stores/connections";
+import { useWorkbenchStore } from "../../stores/workbench";
 
 const props = defineProps<{
   modelValue: string;
@@ -17,6 +25,9 @@ const emit = defineEmits<{
   format: [];
   save: [];
 }>();
+const connectionsStore = useConnectionsStore();
+const workbenchStore = useWorkbenchStore();
+let completionProvider: IDisposable | null = null;
 
 const sqlValue = computed({
   get: () => props.modelValue,
@@ -29,6 +40,11 @@ const editorOptions = {
   minimap: { enabled: false },
   automaticLayout: true,
   wordWrap: "on" as const,
+  wordBasedSuggestions: "off" as const,
+  suggest: {
+    showKeywords: false,
+    showWords: false,
+  },
   tabSize: 2,
   lineNumbersMinChars: 3,
   scrollBeyondLastLine: false,
@@ -46,7 +62,70 @@ const handleBeforeMount = (monaco: MonacoInstance): void => {
       "editorCursor.foreground": "#9ca1ad",
     },
   });
+
+  completionProvider?.dispose();
+  completionProvider = monaco.languages.registerCompletionItemProvider("sql", {
+    triggerCharacters: [".", ":", "@", "$", "{", "_"],
+    provideCompletionItems(
+      model: MonacoEditorApi.ITextModel,
+      position: IPosition,
+    ) {
+      const activeConnection = connectionsStore.activeProfile;
+      const activeTab = workbenchStore.activeTab;
+      const hasActiveScope =
+        Boolean(activeConnection?.id) &&
+        Boolean(activeTab?.connectionId) &&
+        activeConnection?.id === activeTab?.connectionId;
+      const wordUntil = model.getWordUntilPosition(position);
+      const linePrefix = model
+        .getLineContent(position.lineNumber)
+        .slice(0, Math.max(position.column - 1, 0));
+      const completionRange = {
+        startLineNumber: position.lineNumber,
+        startColumn: wordUntil.startColumn,
+        endLineNumber: position.lineNumber,
+        endColumn: wordUntil.endColumn,
+      };
+      const suggestions = buildSqlAutocompleteSuggestions({
+        schemaObjectMap: hasActiveScope ? workbenchStore.schemaObjectMap : {},
+        sql: model.getValue(),
+        linePrefix,
+        wordUntilCursor: wordUntil.word,
+      }).map((suggestion) => ({
+        label: suggestion.label,
+        insertText: suggestion.insertText,
+        detail: suggestion.detail,
+        sortText: suggestion.sortText,
+        range: completionRange,
+        kind:
+          suggestion.kind === "schema"
+            ? monaco.languages.CompletionItemKind.Module
+            : suggestion.kind === "tables"
+              ? monaco.languages.CompletionItemKind.Struct
+              : suggestion.kind === "views"
+                ? monaco.languages.CompletionItemKind.Interface
+                : suggestion.kind === "functions" ||
+                    suggestion.kind === "procedures"
+                  ? monaco.languages.CompletionItemKind.Function
+                  : suggestion.kind === "triggers"
+                    ? monaco.languages.CompletionItemKind.Event
+                    : suggestion.kind === "indexes"
+                      ? monaco.languages.CompletionItemKind.Field
+                      : suggestion.kind === "sequences" ||
+                          suggestion.kind === "variable"
+                        ? monaco.languages.CompletionItemKind.Variable
+                        : monaco.languages.CompletionItemKind.Text,
+      }));
+
+      return { suggestions };
+    },
+  });
 };
+
+onBeforeUnmount(() => {
+  completionProvider?.dispose();
+  completionProvider = null;
+});
 </script>
 
 <template>
