@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { md5 } from "../../lib/md5";
+import type { GithubDeviceStartResult } from "../../core/auth-types";
 import { getRuntimeMode } from "../../core/query-engine-service";
 import { useAppTabsStore, type AppTab } from "../../stores/app-tabs";
 import { useAuthStore } from "../../stores/auth";
@@ -38,6 +39,10 @@ const authError = ref("");
 const isRequestingOtp = ref(false);
 const isVerifyingOtp = ref(false);
 const isStartingGithub = ref(false);
+const isPollingGithubDevice = ref(false);
+const githubDeviceChallenge = ref<GithubDeviceStartResult | null>(null);
+const githubDevicePollIntervalSeconds = ref<number>(5);
+const githubDevicePollTimeoutId = ref<number | null>(null);
 const hasProviderAvatarLoadError = ref(false);
 const hasGravatarLoadError = ref(false);
 
@@ -285,6 +290,118 @@ function clearOtpState(): void {
   otpExpiresAt.value = null;
 }
 
+function clearGithubDevicePollTimer(): void {
+  if (
+    githubDevicePollTimeoutId.value == null ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+
+  window.clearTimeout(githubDevicePollTimeoutId.value);
+  githubDevicePollTimeoutId.value = null;
+}
+
+function clearGithubDeviceState(): void {
+  clearGithubDevicePollTimer();
+  githubDeviceChallenge.value = null;
+  githubDevicePollIntervalSeconds.value = 5;
+  isPollingGithubDevice.value = false;
+}
+
+function scheduleGithubDevicePoll(seconds: number): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const delaySeconds = Math.max(1, Math.floor(seconds));
+  clearGithubDevicePollTimer();
+  githubDevicePollTimeoutId.value = window.setTimeout(() => {
+    void pollGithubDeviceLogin();
+  }, delaySeconds * 1000);
+}
+
+async function openGithubDeviceVerification(): Promise<void> {
+  const challenge = githubDeviceChallenge.value;
+  if (!challenge) {
+    return;
+  }
+
+  const verificationUrl =
+    challenge.verificationUriComplete ?? challenge.verificationUri;
+
+  try {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(verificationUrl);
+  } catch (error) {
+    authError.value =
+      error instanceof Error
+        ? error.message
+        : "Unable to open the GitHub verification page.";
+  }
+}
+
+async function pollGithubDeviceLogin(): Promise<void> {
+  const challenge = githubDeviceChallenge.value;
+
+  if (!challenge) {
+    return;
+  }
+
+  const expiresAtTimestamp = Date.parse(challenge.expiresAt);
+  if (!Number.isNaN(expiresAtTimestamp) && expiresAtTimestamp <= Date.now()) {
+    authError.value = "GitHub device login expired. Start again.";
+    clearGithubDeviceState();
+    return;
+  }
+
+  isPollingGithubDevice.value = true;
+
+  try {
+    const result = await authStore.pollGithubDeviceLogin(challenge.deviceCode);
+    if (result.status === "approved") {
+      authMessage.value = "Signed in.";
+      clearOtpState();
+      clearGithubDeviceState();
+      closeProfileMenu();
+      return;
+    }
+
+    if (githubDeviceChallenge.value?.deviceCode !== challenge.deviceCode) {
+      return;
+    }
+
+    if (result.status === "pending") {
+      githubDevicePollIntervalSeconds.value = result.interval;
+      authMessage.value = "Waiting for GitHub authorization...";
+      scheduleGithubDevicePoll(result.interval);
+      return;
+    }
+
+    if (result.status === "slow_down") {
+      githubDevicePollIntervalSeconds.value = result.interval;
+      authMessage.value = "GitHub asked to slow down polling. Waiting...";
+      scheduleGithubDevicePoll(result.interval);
+      return;
+    }
+
+    if (result.status === "denied") {
+      authError.value = "GitHub login was canceled.";
+      clearGithubDeviceState();
+      return;
+    }
+
+    authError.value = "GitHub device login expired. Start again.";
+    clearGithubDeviceState();
+  } catch (error) {
+    authError.value =
+      error instanceof Error ? error.message : "GitHub login failed.";
+    clearGithubDeviceState();
+  } finally {
+    isPollingGithubDevice.value = false;
+  }
+}
+
 function formatExpiry(expiresAt: string | null): string | null {
   if (!expiresAt) {
     return null;
@@ -359,13 +476,28 @@ async function verifyOtpLogin(): Promise<void> {
   }
 }
 
-function loginWithGithub(): void {
+async function loginWithGithub(): Promise<void> {
   authError.value = "";
   authMessage.value = "";
   isStartingGithub.value = true;
 
   try {
+    if (isDesktopRuntime) {
+      clearGithubDeviceState();
+      const challenge = await authStore.startGithubDeviceLogin();
+      githubDeviceChallenge.value = challenge;
+      githubDevicePollIntervalSeconds.value = challenge.interval;
+      authMessage.value = `Enter code ${challenge.userCode} on GitHub to continue.`;
+      await openGithubDeviceVerification();
+
+      scheduleGithubDevicePoll(challenge.interval);
+      return;
+    }
+
     authStore.beginGithubLogin();
+  } catch (error) {
+    authError.value =
+      error instanceof Error ? error.message : "Failed to start GitHub login.";
   } finally {
     isStartingGithub.value = false;
   }
@@ -376,6 +508,7 @@ function signOut(): void {
   authMessage.value = "Signed out.";
   authError.value = "";
   clearOtpState();
+  clearGithubDeviceState();
   emailInput.value = "";
   closeProfileMenu();
 }
@@ -436,12 +569,25 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => authStore.isAuthenticated,
+  (value) => {
+    if (value) {
+      if (authMessage.value.startsWith("Waiting for GitHub authorization")) {
+        authMessage.value = "Signed in.";
+      }
+      clearGithubDeviceState();
+    }
+  },
+);
+
 onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointerDown);
   document.addEventListener("keydown", handleDocumentKeyDown);
 });
 
 onBeforeUnmount(() => {
+  clearGithubDevicePollTimer();
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   document.removeEventListener("keydown", handleDocumentKeyDown);
 });
@@ -528,10 +674,13 @@ async function closeTab(tab: AppTab): Promise<void> {
     </div>
 
     <div class="ml-auto flex shrink-0 items-center gap-2">
-      <div ref="profileMenuRootElement" class="relative">
+      <div
+        ref="profileMenuRootElement"
+        class="relative inline-flex items-center rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
+      >
         <button
           type="button"
-          class="inline-flex size-7 shrink-0 items-center justify-center rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
+          class="inline-flex size-7 shrink-0 items-center justify-center"
           aria-label="User profile"
           :aria-expanded="isProfileMenuOpen"
           @click="handleProfileButtonClick"
@@ -549,7 +698,7 @@ async function closeTab(tab: AppTab): Promise<void> {
           >
             {{ userInitial }}
           </span>
-          <UserRound v-else :size="14" class="text-[var(--chrome-ink-muted)]" />
+          <UserRound v-else :size="15" class="text-[var(--chrome-ink-muted)]" />
         </button>
 
         <div
@@ -634,12 +783,50 @@ async function closeTab(tab: AppTab): Promise<void> {
               <button
                 type="button"
                 class="chrome-btn inline-flex items-center justify-center gap-2"
-                :disabled="isStartingGithub"
+                :disabled="isStartingGithub || isPollingGithubDevice"
                 @click="loginWithGithub"
               >
                 <Github :size="13" />
-                Continue with GitHub
+                {{
+                  isStartingGithub
+                    ? "Starting GitHub..."
+                    : "Continue with GitHub"
+                }}
               </button>
+
+              <div
+                v-if="isDesktopRuntime && githubDeviceChallenge"
+                class="rounded-[3px] border border-[var(--chrome-border)] bg-[#101722] px-2 py-2"
+              >
+                <p class="text-[var(--chrome-ink)]">
+                  Enter code
+                  <span class="font-semibold tracking-[0.08em]">
+                    {{ githubDeviceChallenge.userCode }}
+                  </span>
+                  on GitHub.
+                </p>
+                <p class="mt-1 text-[var(--chrome-ink-dim)]">
+                  Expires
+                  {{
+                    formatExpiry(githubDeviceChallenge.expiresAt) ??
+                    githubDeviceChallenge.expiresAt
+                  }}.
+                </p>
+                <button
+                  type="button"
+                  class="chrome-btn mt-2"
+                  @click="openGithubDeviceVerification"
+                >
+                  Open GitHub verification page
+                </button>
+                <p
+                  v-if="isPollingGithubDevice"
+                  class="mt-1 inline-flex items-center gap-1 text-[var(--chrome-ink-dim)]"
+                >
+                  <LoaderCircle :size="12" class="animate-spin" />
+                  Polling every {{ githubDevicePollIntervalSeconds }}s...
+                </p>
+              </div>
 
               <div class="h-px w-full bg-[var(--chrome-border)]" />
 

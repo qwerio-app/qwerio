@@ -1,4 +1,10 @@
-import type { AuthResult, AuthenticatedUser, OtpRequestResult } from "./auth-types";
+import type {
+  AuthResult,
+  AuthenticatedUser,
+  GithubDevicePollResult,
+  GithubDeviceStartResult,
+  OtpRequestResult,
+} from "./auth-types";
 
 const DEFAULT_AUTH_API_BASE_URL = "/api";
 
@@ -94,6 +100,26 @@ async function requestJson<T>(pathname: string, init?: RequestInit): Promise<T> 
 
 export function getGithubLoginUrl(): string {
   return toAuthApiUrl("/auth/github");
+}
+
+export async function startGithubDeviceFlow(): Promise<GithubDeviceStartResult> {
+  return requestJson<GithubDeviceStartResult>("/auth/github/device/start", {
+    method: "POST",
+  });
+}
+
+export async function pollGithubDeviceFlow(
+  deviceCode: string,
+): Promise<GithubDevicePollResult> {
+  return requestJson<GithubDevicePollResult>("/auth/github/device/poll", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      deviceCode,
+    }),
+  });
 }
 
 export async function requestEmailOtp(email: string): Promise<OtpRequestResult> {

@@ -1,6 +1,13 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { getAuthMe, getGithubLoginUrl, requestEmailOtp, verifyEmailOtp } from "../core/auth-api";
+import {
+  getAuthMe,
+  getGithubLoginUrl,
+  pollGithubDeviceFlow,
+  requestEmailOtp,
+  startGithubDeviceFlow,
+  verifyEmailOtp,
+} from "../core/auth-api";
 import {
   isAuthSessionExpired,
   loadAuthSessionFromStorage,
@@ -8,8 +15,11 @@ import {
   toAuthSession,
 } from "../core/auth-session";
 import type {
+  AuthResult,
   AuthenticatedUser,
   AuthSession,
+  GithubDevicePollResult,
+  GithubDeviceStartResult,
   OtpRequestResult,
 } from "../core/auth-types";
 
@@ -181,6 +191,12 @@ export const useAuthStore = defineStore("auth", () => {
     isAuthenticated.value ? session.value?.user ?? null : null,
   );
 
+  async function applyAuthResult(authResult: AuthResult): Promise<void> {
+    const nextSession = toAuthSession(authResult);
+    session.value = nextSession;
+    await saveAuthSessionToStorage(nextSession);
+  }
+
   function beginGithubLogin(): void {
     if (typeof window === "undefined") {
       return;
@@ -195,9 +211,22 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function verifyLoginOtp(email: string, otp: string): Promise<void> {
     const authResult = await verifyEmailOtp(email, otp);
-    const nextSession = toAuthSession(authResult);
-    session.value = nextSession;
-    await saveAuthSessionToStorage(nextSession);
+    await applyAuthResult(authResult);
+  }
+
+  async function startGithubDeviceLogin(): Promise<GithubDeviceStartResult> {
+    return startGithubDeviceFlow();
+  }
+
+  async function pollGithubDeviceLogin(
+    deviceCode: string,
+  ): Promise<GithubDevicePollResult> {
+    const result = await pollGithubDeviceFlow(deviceCode);
+    if (result.status === "approved") {
+      await applyAuthResult(result.auth);
+    }
+
+    return result;
   }
 
   async function refreshCurrentUser(): Promise<void> {
@@ -228,6 +257,8 @@ export const useAuthStore = defineStore("auth", () => {
     accessToken,
     currentUser,
     beginGithubLogin,
+    startGithubDeviceLogin,
+    pollGithubDeviceLogin,
     requestLoginOtp,
     verifyLoginOtp,
     refreshCurrentUser,

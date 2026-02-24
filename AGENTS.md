@@ -55,7 +55,10 @@
 - Login entrypoint is the user/profile button in `src/components/layout/AppHeader.vue`.
 - Backend integration targets the Nest API app at `/home/sergio/workspace/qwerio-api`.
 - Supported login methods:
-  - GitHub OAuth via `GET /auth/github` and callback token handling.
+  - GitHub OAuth via `GET /auth/github` and callback token handling (web).
+  - GitHub OAuth device flow via:
+    - `POST /auth/github/device/start` (desktop challenge start).
+    - `POST /auth/github/device/poll` (desktop challenge polling).
   - Email OTP via:
     - `POST /auth/email/request-otp` (email only).
     - `POST /auth/email/verify-otp` (email + 6-digit numeric OTP).
