@@ -137,16 +137,23 @@ function toTableRoutePath(tableTabId: string): string {
   return `/tables/${tableTabId}`;
 }
 
+function toCollectionRoutePath(collectionTabId: string): string {
+  return `/collections/${collectionTabId}`;
+}
+
 function getTabTitle(tab: AppTab): string {
   if (tab.kind === "query") {
     return tab.title;
   }
 
-  if (!tab.pageKey.startsWith("table:")) {
+  if (
+    !tab.pageKey.startsWith("table:") &&
+    !tab.pageKey.startsWith("collection:")
+  ) {
     return tab.title;
   }
 
-  const tableTabId = tab.pageKey.slice("table:".length);
+  const tableTabId = tab.pageKey.slice(tab.pageKey.indexOf(":") + 1);
   const tableTab = workbenchStore.getTableTab(tableTabId);
 
   if (tableTab?.tableName) {
@@ -172,6 +179,7 @@ watch(
       route.path,
       route.params.queryTabId,
       route.params.tableTabId,
+      route.params.collectionTabId,
       workbenchStore.activeTabId,
     ] as const,
   () => {
@@ -198,13 +206,18 @@ watch(
       return;
     }
 
-    if (route.name === "table") {
-      const tableTabId =
-        typeof route.params.tableTabId === "string"
+    if (route.name === "table" || route.name === "collection") {
+      const tableTabId = (
+        route.name === "table"
           ? route.params.tableTabId
+          : route.params.collectionTabId
+      );
+      const resolvedTabId =
+        typeof tableTabId === "string"
+          ? tableTabId
           : "";
-      const tableTab = tableTabId
-        ? workbenchStore.getTableTab(tableTabId)
+      const tableTab = resolvedTabId
+        ? workbenchStore.getTableTab(resolvedTabId)
         : null;
 
       if (!tableTab) {
@@ -227,9 +240,15 @@ watch(
       }
 
       appTabsStore.openPageTab({
-        pageKey: `table:${tableTabId}`,
+        pageKey:
+          route.name === "collection"
+            ? `collection:${resolvedTabId}`
+            : `table:${resolvedTabId}`,
         title: tableTab.title,
-        routePath: toTableRoutePath(tableTabId),
+        routePath:
+          route.name === "collection"
+            ? toCollectionRoutePath(resolvedTabId)
+            : toTableRoutePath(resolvedTabId),
         activate: true,
       });
       return;
@@ -623,8 +642,11 @@ async function closeTab(tab: AppTab): Promise<void> {
     if (!closed) {
       return;
     }
-  } else if (tab.pageKey.startsWith("table:")) {
-    const tableTabId = tab.pageKey.slice("table:".length);
+  } else if (
+    tab.pageKey.startsWith("table:") ||
+    tab.pageKey.startsWith("collection:")
+  ) {
+    const tableTabId = tab.pageKey.slice(tab.pageKey.indexOf(":") + 1);
     workbenchStore.removeTableTab(tableTabId);
   }
 

@@ -1,10 +1,29 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime as ChronoDateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use futures_util::stream::TryStreamExt;
+use mongodb::bson::{doc as mongo_doc, Document as MongoDocument};
+use mongodb::options::ClientOptions as MongoClientOptions;
+use mongodb::Client as MongoClient;
 use mysql_async::prelude::Queryable;
 use mysql_async::{OptsBuilder, Pool, Row as MySqlRow, Value as MySqlValue};
+use redis::Client as RedisClient;
+use rustls::client::danger::{
+    HandshakeSignatureValid as RustlsHandshakeSignatureValid,
+    ServerCertVerified as RustlsServerCertVerified,
+    ServerCertVerifier as RustlsServerCertVerifier,
+};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{
+    ClientConfig as RustlsClientConfig, DigitallySignedStruct, RootCertStore,
+    SignatureScheme,
+};
 use rusqlite::types::{Value as SqliteValue, ValueRef as SqliteValueRef};
 use rusqlite::{params_from_iter, Connection as SqliteConnection};
 use serde::{Deserialize, Serialize};
@@ -14,13 +33,220 @@ use tiberius::{
     Row as SqlServerRow, ToSql as SqlServerToSql,
 };
 use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, RwLock};
+use tokio_postgres::tls::{
+    ChannelBinding as PostgresChannelBinding, MakeTlsConnect, TlsConnect,
+    TlsStream as PostgresTlsStream,
+};
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{Client as PgClient, NoTls};
+use tokio_rustls::client::TlsStream as RustlsTlsStream;
+use tokio_rustls::TlsConnector;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
+use uuid::Uuid;
+use webpki_roots::TLS_SERVER_ROOTS;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 type SqlServerClient = SqlServerRawClient<tokio_util::compat::Compat<TcpStream>>;
+
+#[derive(Clone)]
+struct MakePostgresRustlsConnect {
+    connector: TlsConnector,
+}
+
+#[derive(Debug)]
+struct InsecureServerCertVerifier {
+    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
+}
+
+impl InsecureServerCertVerifier {
+    fn new() -> Self {
+        Self {
+            supported_algs: rustls::crypto::aws_lc_rs::default_provider()
+                .signature_verification_algorithms,
+        }
+    }
+}
+
+impl RustlsServerCertVerifier for InsecureServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<RustlsServerCertVerified, rustls::Error> {
+        Ok(RustlsServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<RustlsHandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.supported_algs)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<RustlsHandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.supported_algs)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported_algs.supported_schemes()
+    }
+}
+
+static RUSTLS_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+
+fn ensure_rustls_crypto_provider() -> Result<(), String> {
+    RUSTLS_PROVIDER_INIT
+        .get_or_init(|| {
+            rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .map_err(|_| "Failed to install rustls aws-lc-rs crypto provider.".to_string())
+        })
+        .clone()
+}
+
+impl MakePostgresRustlsConnect {
+    fn new(allow_invalid_certs: bool) -> Result<Self, String> {
+        ensure_rustls_crypto_provider()?;
+        let config = if allow_invalid_certs {
+            RustlsClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(
+                    InsecureServerCertVerifier::new(),
+                ))
+                .with_no_client_auth()
+        } else {
+            let mut roots = RootCertStore::empty();
+            roots.extend(TLS_SERVER_ROOTS.iter().cloned());
+
+            RustlsClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth()
+        };
+
+        Ok(Self {
+            connector: TlsConnector::from(Arc::new(config)),
+        })
+    }
+}
+
+struct PostgresRustlsConnect {
+    connector: TlsConnector,
+    server_name: ServerName<'static>,
+}
+
+struct PostgresRustlsStream<S>(RustlsTlsStream<S>);
+
+impl<S> MakeTlsConnect<S> for MakePostgresRustlsConnect
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    type Stream = PostgresRustlsStream<S>;
+    type TlsConnect = PostgresRustlsConnect;
+    type Error = std::io::Error;
+
+    fn make_tls_connect(&mut self, domain: &str) -> Result<Self::TlsConnect, Self::Error> {
+        let server_name = ServerName::try_from(domain.to_string()).map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid TLS server name '{domain}': {error}"),
+            )
+        })?;
+
+        Ok(PostgresRustlsConnect {
+            connector: self.connector.clone(),
+            server_name,
+        })
+    }
+}
+
+impl<S> TlsConnect<S> for PostgresRustlsConnect
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    type Stream = PostgresRustlsStream<S>;
+    type Error = std::io::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Stream, Self::Error>> + Send>>;
+
+    fn connect(self, stream: S) -> Self::Future {
+        Box::pin(async move {
+            let tls_stream = self.connector.connect(self.server_name, stream).await?;
+            Ok(PostgresRustlsStream(tls_stream))
+        })
+    }
+}
+
+impl<S> AsyncRead for PostgresRustlsStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl<S> AsyncWrite for PostgresRustlsStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.0.is_write_vectored()
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+impl<S> PostgresTlsStream for PostgresRustlsStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn channel_binding(&self) -> PostgresChannelBinding {
+        PostgresChannelBinding::none()
+    }
+}
 
 #[derive(Default)]
 struct AppState {
@@ -33,6 +259,8 @@ enum DbConnection {
     MySql(Pool),
     SqlServer(Arc<Mutex<SqlServerClient>>),
     Sqlite(Arc<String>),
+    Redis(Arc<RedisClient>),
+    Mongo(Arc<MongoClient>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +277,14 @@ struct DesktopConnectionConfig {
     user: String,
     #[serde(default)]
     password: Option<String>,
+    #[serde(default)]
+    preferred_tls_mode: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DbConnectResult {
+    resolved_tls_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,26 +370,31 @@ impl SchemaObjectMap {
 async fn db_connect(
     connection: DesktopConnectionConfig,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<DbConnectResult, String> {
     validate_connection_input(&connection)?;
     let password = connection.password.as_deref();
+    let mut resolved_tls_mode: Option<String> = None;
 
     let db_connection = match connection.dialect.as_str() {
         "postgres" => {
-            DbConnection::Postgres(Arc::new(connect_postgres(&connection, password).await?))
+            let (client, mode) = connect_postgres(&connection, password).await?;
+            resolved_tls_mode = Some(mode.storage_value().to_string());
+            DbConnection::Postgres(Arc::new(client))
         }
         "mysql" => DbConnection::MySql(connect_mysql(&connection, password).await?),
         "sqlserver" => DbConnection::SqlServer(Arc::new(Mutex::new(
             connect_sql_server(&connection, password).await?,
         ))),
         "sqlite" => DbConnection::Sqlite(Arc::new(connect_sqlite(&connection)?)),
+        "redis" => DbConnection::Redis(Arc::new(connect_redis(&connection, password).await?)),
+        "mongodb" => DbConnection::Mongo(Arc::new(connect_mongodb(&connection, password).await?)),
         _ => return Err(format!("Unsupported dialect: {}", connection.dialect)),
     };
 
     let mut guard = state.connections.write().await;
     guard.insert(connection.id, db_connection);
 
-    Ok(())
+    Ok(DbConnectResult { resolved_tls_mode })
 }
 
 #[tauri::command]
@@ -187,6 +428,12 @@ async fn db_execute(
         }
         DbConnection::Sqlite(database_path) => {
             execute_sqlite(database_path.as_ref().as_str(), &req.sql, req.params.as_deref())
+        }
+        DbConnection::Redis(client) => {
+            execute_redis(client.as_ref(), &req.sql, req.params.as_deref()).await
+        }
+        DbConnection::Mongo(client) => {
+            execute_mongodb(client.as_ref(), &req.sql, req.params.as_deref()).await
         }
     }
 }
@@ -240,6 +487,8 @@ async fn db_list_schemas(
         }
         DbConnection::SqlServer(client) => sql_server_list_schemas(client.as_ref()).await,
         DbConnection::Sqlite(database_path) => list_sqlite_schemas(database_path.as_ref().as_str()),
+        DbConnection::Redis(client) => list_redis_schemas(client.as_ref()).await,
+        DbConnection::Mongo(client) => list_mongodb_schemas(client.as_ref()).await,
     }
 }
 
@@ -300,6 +549,8 @@ async fn db_list_tables(
         DbConnection::Sqlite(database_path) => {
             list_sqlite_tables(database_path.as_ref().as_str(), schema)
         }
+        DbConnection::Redis(client) => list_redis_tables(client.as_ref(), schema).await,
+        DbConnection::Mongo(client) => list_mongodb_tables(client.as_ref(), schema).await,
     }
 }
 
@@ -425,13 +676,15 @@ async fn db_list_schema_objects(
         DbConnection::Sqlite(database_path) => {
             list_sqlite_schema_objects(database_path.as_ref().as_str(), schema)
         }
+        DbConnection::Redis(client) => list_redis_schema_objects(client.as_ref(), schema).await,
+        DbConnection::Mongo(client) => list_mongodb_schema_objects(client.as_ref(), schema).await,
     }
 }
 
 async fn connect_postgres(
     config: &DesktopConnectionConfig,
     password: Option<&str>,
-) -> Result<PgClient, String> {
+) -> Result<(PgClient, PostgresConnectMode), String> {
     let mut pg_config = tokio_postgres::Config::new();
 
     if is_localhost_host(&config.host) {
@@ -452,8 +705,20 @@ async fn connect_postgres(
         }
     }
 
-    match connect_postgres_config(pg_config).await {
-        Ok(client) => return Ok(client),
+    let preferred_mode = config
+        .preferred_tls_mode
+        .as_deref()
+        .and_then(PostgresConnectMode::from_storage_value);
+
+    match connect_postgres_config(
+        pg_config,
+        true,
+        !is_localhost_host(&config.host),
+        preferred_mode,
+    )
+    .await
+    {
+        Ok((client, mode)) => return Ok((client, mode)),
         Err(tcp_error) => {
             #[cfg(unix)]
             if is_localhost_host(&config.host) {
@@ -479,8 +744,8 @@ async fn connect_postgres(
                         }
                     }
 
-                    match connect_postgres_config(socket_cfg).await {
-                        Ok(client) => return Ok(client),
+                    match connect_postgres_config(socket_cfg, false, false, None).await {
+                        Ok((client, mode)) => return Ok((client, mode)),
                         Err(socket_error) => {
                             socket_errors.push(format!("{socket_dir}: {socket_error}"))
                         }
@@ -660,24 +925,318 @@ fn connect_sqlite(config: &DesktopConnectionConfig) -> Result<String, String> {
     Ok(database_path.to_string())
 }
 
-async fn connect_postgres_config(config: tokio_postgres::Config) -> Result<PgClient, String> {
-    let (client, connection) = tokio::time::timeout(CONNECT_TIMEOUT, config.connect(NoTls))
+async fn connect_redis(
+    config: &DesktopConnectionConfig,
+    password: Option<&str>,
+) -> Result<RedisClient, String> {
+    let host = config.host.trim();
+    let database = config.database.trim();
+    let db_index = database
+        .parse::<u32>()
+        .map_err(|_| "Redis database must be a non-negative integer.".to_string())?;
+    let username = config.user.trim();
+    let password = password.unwrap_or_default();
+    let auth_segment = if !username.is_empty() {
+        format!("{username}:{password}@")
+    } else if !password.is_empty() {
+        format!(":{password}@")
+    } else {
+        String::new()
+    };
+    let url = format!("redis://{auth_segment}{host}:{}/{db_index}", config.port);
+    let client = RedisClient::open(url.as_str())
+        .map_err(|error| format!("Redis client initialization failed: {error}"))?;
+
+    let mut connection = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        client.get_multiplexed_async_connection(),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "Redis connect timed out after {}s. Verify host reachability and credentials.",
+            CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(|error| format!("Redis connect failed: {error}"))?;
+
+    let pong: String = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        redis::cmd("PING").query_async(&mut connection),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "Redis PING timed out after {}s. Verify server responsiveness.",
+            CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(|error| format!("Redis PING failed: {error}"))?;
+
+    if !pong.eq_ignore_ascii_case("PONG") {
+        return Err("Redis health check did not return PONG.".to_string());
+    }
+
+    Ok(client)
+}
+
+async fn connect_mongodb(
+    config: &DesktopConnectionConfig,
+    password: Option<&str>,
+) -> Result<MongoClient, String> {
+    let host = config.host.trim();
+    let username = config.user.trim();
+    let password = password.unwrap_or_default();
+    let auth_segment = if !username.is_empty() {
+        format!("{username}:{password}@")
+    } else {
+        String::new()
+    };
+    let uri = format!("mongodb://{auth_segment}{host}:{}", config.port);
+
+    let mut options = tokio::time::timeout(CONNECT_TIMEOUT, MongoClientOptions::parse(&uri))
         .await
         .map_err(|_| {
             format!(
-                "Postgres connect timed out after {}s. Verify host reachability and credentials.",
+                "MongoDB connect timed out after {}s. Verify host reachability and credentials.",
                 CONNECT_TIMEOUT.as_secs()
             )
         })?
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("MongoDB options parse failed: {error}"))?;
+    options.app_name = Some("qwerio".to_string());
 
-    tokio::spawn(async move {
-        if let Err(error) = connection.await {
-            eprintln!("postgres connection task ended with error: {error}");
-        }
-    });
+    let client = MongoClient::with_options(options)
+        .map_err(|error| format!("MongoDB client initialization failed: {error}"))?;
+    let database = if config.database.trim().is_empty() {
+        "admin"
+    } else {
+        config.database.trim()
+    };
+
+    tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        client.database(database).run_command(mongo_doc! {"ping": 1}),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "MongoDB ping timed out after {}s. Verify server responsiveness.",
+            CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(|error| format!("MongoDB ping failed: {error}"))?;
 
     Ok(client)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PostgresConnectMode {
+    TlsVerified,
+    TlsInsecure,
+    Plaintext,
+}
+
+impl PostgresConnectMode {
+    fn label(self) -> &'static str {
+        match self {
+            PostgresConnectMode::TlsVerified => "TLS (verified cert)",
+            PostgresConnectMode::TlsInsecure => "TLS (allow invalid cert)",
+            PostgresConnectMode::Plaintext => "non-TLS",
+        }
+    }
+
+    fn storage_value(self) -> &'static str {
+        match self {
+            PostgresConnectMode::TlsVerified => "tls-verified-cert",
+            PostgresConnectMode::TlsInsecure => "tls-allow-invalid-cert",
+            PostgresConnectMode::Plaintext => "non-tls",
+        }
+    }
+
+    fn from_storage_value(value: &str) -> Option<Self> {
+        match value {
+            "tls-verified-cert" => Some(PostgresConnectMode::TlsVerified),
+            "tls-allow-invalid-cert" => Some(PostgresConnectMode::TlsInsecure),
+            "non-tls" => Some(PostgresConnectMode::Plaintext),
+            _ => None,
+        }
+    }
+}
+
+fn looks_like_postgres_tls_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+
+    lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("certificate")
+        || lower.contains("handshake")
+        || lower.contains("requires encryption")
+        || lower.contains("encrypted connection")
+        || lower.contains("no encryption")
+}
+
+fn format_postgres_connect_error(error: tokio_postgres::Error) -> String {
+    if let Some(db_error) = error.as_db_error() {
+        let mut details = vec![format!(
+            "{} (SQLSTATE {})",
+            db_error.message(),
+            db_error.code().code()
+        )];
+
+        if let Some(detail) = db_error.detail() {
+            if !detail.trim().is_empty() {
+                details.push(format!("detail: {detail}"));
+            }
+        }
+
+        if let Some(hint) = db_error.hint() {
+            if !hint.trim().is_empty() {
+                details.push(format!("hint: {hint}"));
+            }
+        }
+
+        return details.join(". ");
+    }
+
+    let raw = error.to_string();
+    if raw.trim().is_empty() {
+        "Unknown Postgres connection error.".to_string()
+    } else {
+        raw
+    }
+}
+
+async fn connect_postgres_with_mode(
+    config: &tokio_postgres::Config,
+    mode: PostgresConnectMode,
+) -> Result<PgClient, String> {
+    match mode {
+        PostgresConnectMode::TlsVerified => {
+            let tls_connector = MakePostgresRustlsConnect::new(false)?;
+            let (client, connection) =
+                tokio::time::timeout(CONNECT_TIMEOUT, config.connect(tls_connector))
+                    .await
+                    .map_err(|_| {
+                        format!(
+                            "Postgres {} connect timed out after {}s. Verify host reachability, certificates, and credentials.",
+                            mode.label(),
+                            CONNECT_TIMEOUT.as_secs()
+                        )
+                    })?
+                    .map_err(format_postgres_connect_error)?;
+
+            tokio::spawn(async move {
+                if let Err(error) = connection.await {
+                    eprintln!("postgres connection task ended with error: {error}");
+                }
+            });
+
+            Ok(client)
+        }
+        PostgresConnectMode::TlsInsecure => {
+            let tls_connector = MakePostgresRustlsConnect::new(true)?;
+            let (client, connection) =
+                tokio::time::timeout(CONNECT_TIMEOUT, config.connect(tls_connector))
+                    .await
+                    .map_err(|_| {
+                        format!(
+                            "Postgres {} connect timed out after {}s. Verify host reachability and credentials.",
+                            mode.label(),
+                            CONNECT_TIMEOUT.as_secs()
+                        )
+                    })?
+                    .map_err(format_postgres_connect_error)?;
+
+            eprintln!(
+                "warning: postgres connection established using insecure TLS certificate acceptance"
+            );
+
+            tokio::spawn(async move {
+                if let Err(error) = connection.await {
+                    eprintln!("postgres connection task ended with error: {error}");
+                }
+            });
+
+            Ok(client)
+        }
+        PostgresConnectMode::Plaintext => {
+            let (client, connection) =
+                tokio::time::timeout(CONNECT_TIMEOUT, config.connect(NoTls))
+                    .await
+                    .map_err(|_| {
+                        format!(
+                            "Postgres {} connect timed out after {}s. Verify host reachability and credentials.",
+                            mode.label(),
+                            CONNECT_TIMEOUT.as_secs()
+                        )
+                    })?
+                    .map_err(format_postgres_connect_error)?;
+
+            tokio::spawn(async move {
+                if let Err(error) = connection.await {
+                    eprintln!("postgres connection task ended with error: {error}");
+                }
+            });
+
+            Ok(client)
+        }
+    }
+}
+
+async fn connect_postgres_config(
+    config: tokio_postgres::Config,
+    allow_tls: bool,
+    prefer_tls: bool,
+    preferred_mode: Option<PostgresConnectMode>,
+) -> Result<(PgClient, PostgresConnectMode), String> {
+    let mut modes = if allow_tls {
+        if prefer_tls {
+            vec![
+                PostgresConnectMode::TlsVerified,
+                PostgresConnectMode::TlsInsecure,
+                PostgresConnectMode::Plaintext,
+            ]
+        } else {
+            vec![
+                PostgresConnectMode::Plaintext,
+                PostgresConnectMode::TlsVerified,
+                PostgresConnectMode::TlsInsecure,
+            ]
+        }
+    } else {
+        vec![PostgresConnectMode::Plaintext]
+    };
+
+    if let Some(preferred_mode) = preferred_mode {
+        if let Some(index) = modes.iter().position(|mode| *mode == preferred_mode) {
+            modes.remove(index);
+            modes.insert(0, preferred_mode);
+        }
+    }
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for mode in modes {
+        match connect_postgres_with_mode(&config, mode).await {
+            Ok(client) => return Ok((client, mode)),
+            Err(error) => errors.push(format!("{}: {error}", mode.label())),
+        }
+    }
+
+    let attempts = errors.len();
+    let message = format!(
+        "Postgres connection failed after {attempts} attempt{}: {}",
+        if attempts == 1 { "" } else { "s" },
+        errors.join("; ")
+    );
+
+    if looks_like_postgres_tls_error(&message) {
+        return Err(format!(
+            "{message}. Checks: verified TLS is attempted first, then insecure TLS cert acceptance. Ensure pg_hba/server SSL policy allows this connection mode and credentials."
+        ));
+    }
+
+    Err(message)
 }
 
 async fn verify_mysql_pool(pool: Pool) -> Result<Pool, String> {
@@ -1022,6 +1581,264 @@ fn execute_sqlite(
         row_count: 1,
         elapsed_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+async fn execute_redis(
+    client: &RedisClient,
+    sql: &str,
+    params: Option<&[JsonValue]>,
+) -> Result<QueryResult, String> {
+    let started = Instant::now();
+    let mut connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|error| format!("Redis connection failed: {error}"))?;
+    let command = sql.trim();
+
+    if command.starts_with('{') {
+        if let Ok(payload) = serde_json::from_str::<JsonValue>(command) {
+            if let Some(result) = execute_redis_preview_payload(
+                &mut connection,
+                &payload,
+                redis_default_database_index(client),
+            )
+            .await?
+            {
+                return Ok(json_value_to_query_result(result, started));
+            }
+        }
+    }
+
+    let mut tokens = parse_redis_command_tokens(command);
+    if tokens.is_empty() {
+        return Err("Redis command is required.".to_string());
+    }
+
+    if let Some(extra_params) = params {
+        for value in extra_params {
+            tokens.push(json_value_to_plain_string(value));
+        }
+    }
+
+    let command_name = tokens.remove(0);
+    let mut redis_command = redis::cmd(&command_name);
+    for token in tokens {
+        redis_command.arg(token);
+    }
+
+    let value: redis::Value = redis_command
+        .query_async(&mut connection)
+        .await
+        .map_err(|error| format!("Redis command failed: {error}"))?;
+
+    Ok(json_value_to_query_result(redis_value_to_json(value), started))
+}
+
+async fn execute_mongodb(
+    client: &MongoClient,
+    sql: &str,
+    _params: Option<&[JsonValue]>,
+) -> Result<QueryResult, String> {
+    let started = Instant::now();
+    let payload: JsonValue = serde_json::from_str(sql.trim()).map_err(|_| {
+        "MongoDB command must be valid JSON. Use {\"op\":\"find\",...} or {\"op\":\"command\",...}."
+            .to_string()
+    })?;
+    let op = payload
+        .get("op")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+
+    if op == "find" {
+        let database_name = payload
+            .get("database")
+            .and_then(|value| value.as_str())
+            .unwrap_or("admin");
+        let collection_name = payload
+            .get("collection")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| "MongoDB find requires 'collection'.".to_string())?;
+        let limit = payload
+            .get("limit")
+            .and_then(|value| value.as_i64())
+            .map(|value| value.clamp(1, 5_000))
+            .unwrap_or(200);
+        let filter = payload
+            .get("filter")
+            .and_then(json_value_to_mongo_document)
+            .unwrap_or_default();
+
+        let collection = client
+            .database(database_name)
+            .collection::<MongoDocument>(collection_name);
+        let mut cursor = collection
+            .find(filter)
+            .limit(limit)
+            .await
+            .map_err(|error| format!("MongoDB find failed: {error}"))?;
+        let mut rows: Vec<JsonValue> = Vec::new();
+
+        while let Some(document) = cursor
+            .try_next()
+            .await
+            .map_err(|error| format!("MongoDB cursor failed: {error}"))?
+        {
+            rows.push(mongo_document_to_json_value(document)?);
+        }
+
+        return Ok(json_value_to_query_result(JsonValue::Array(rows), started));
+    }
+
+    if op == "command" {
+        let database_name = payload
+            .get("database")
+            .and_then(|value| value.as_str())
+            .unwrap_or("admin");
+        let command_payload = payload
+            .get("command")
+            .and_then(json_value_to_mongo_document)
+            .ok_or_else(|| "MongoDB command requires a 'command' document.".to_string())?;
+        let result = client
+            .database(database_name)
+            .run_command(command_payload)
+            .await
+            .map_err(|error| format!("MongoDB command failed: {error}"))?;
+
+        return Ok(json_value_to_query_result(
+            mongo_document_to_json_value(result)?,
+            started,
+        ));
+    }
+
+    Err("MongoDB command must define op='find' or op='command'.".to_string())
+}
+
+async fn list_redis_schemas(client: &RedisClient) -> Result<Vec<Schema>, String> {
+    let default_db_index = redis_default_database_index(client);
+    let mut connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|error| format!("Redis connection failed: {error}"))?;
+    let values_result: Result<Vec<String>, redis::RedisError> = redis::cmd("CONFIG")
+        .arg("GET")
+        .arg("databases")
+        .query_async(&mut connection)
+        .await;
+
+    let mut database_indexes: Vec<u32> = values_result
+        .ok()
+        .and_then(|values| {
+            values
+                .get(1)
+                .and_then(|value| value.parse::<usize>().ok())
+                .map(|value| value.clamp(1, 1024))
+        })
+        .map(|total_databases| (0..total_databases).map(|index| index as u32).collect())
+        .unwrap_or_else(|| vec![default_db_index]);
+
+    if !database_indexes.contains(&default_db_index) {
+        database_indexes.push(default_db_index);
+    }
+
+    database_indexes.sort_unstable();
+    database_indexes.dedup();
+
+    Ok(database_indexes
+        .into_iter()
+        .map(|index| Schema {
+            name: format!("db{index}"),
+        })
+        .collect())
+}
+
+async fn list_redis_tables(
+    client: &RedisClient,
+    schema: &str,
+) -> Result<Vec<DbObjectName>, String> {
+    let objects = list_redis_schema_objects(client, schema).await?;
+    Ok(objects.tables)
+}
+
+async fn list_redis_schema_objects(
+    client: &RedisClient,
+    schema: &str,
+) -> Result<SchemaObjectMap, String> {
+    let db_index = parse_redis_database_name(schema)?;
+    let default_db_index = redis_default_database_index(client);
+    let mut connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|error| format!("Redis connection failed: {error}"))?;
+    if db_index != default_db_index {
+        let _: String = redis::cmd("SELECT")
+            .arg(db_index)
+            .query_async(&mut connection)
+            .await
+            .map_err(|error| format!("Redis database select failed: {error}"))?;
+    }
+    let keys = redis_scan_keys(&mut connection, 800).await?;
+    let mut objects = SchemaObjectMap::empty();
+
+    for key in keys {
+        let key_type: String = redis::cmd("TYPE")
+            .arg(&key)
+            .query_async(&mut connection)
+            .await
+            .map_err(|error| format!("Redis TYPE failed for key '{key}': {error}"))?;
+        let object_type = match key_type.as_str() {
+            "string" => "tables",
+            "hash" => "views",
+            "list" => "functions",
+            "set" => "procedures",
+            "zset" => "triggers",
+            "stream" => "indexes",
+            _ => "sequences",
+        };
+        objects.push(object_type, key);
+    }
+
+    Ok(objects)
+}
+
+async fn list_mongodb_schemas(client: &MongoClient) -> Result<Vec<Schema>, String> {
+    let names = client
+        .list_database_names()
+        .await
+        .map_err(|error| format!("MongoDB database listing failed: {error}"))?;
+
+    Ok(names.into_iter().map(|name| Schema { name }).collect())
+}
+
+async fn list_mongodb_tables(
+    client: &MongoClient,
+    schema: &str,
+) -> Result<Vec<DbObjectName>, String> {
+    let names = client
+        .database(schema)
+        .list_collection_names()
+        .await
+        .map_err(|error| format!("MongoDB collection listing failed: {error}"))?;
+
+    Ok(names
+        .into_iter()
+        .map(|name| DbObjectName { name })
+        .collect())
+}
+
+async fn list_mongodb_schema_objects(
+    client: &MongoClient,
+    schema: &str,
+) -> Result<SchemaObjectMap, String> {
+    let tables = list_mongodb_tables(client, schema).await?;
+    let mut objects = SchemaObjectMap::empty();
+
+    for table in tables {
+        objects.push("tables", table.name);
+    }
+
+    Ok(objects)
 }
 
 async fn sql_server_list_schemas(client: &Mutex<SqlServerClient>) -> Result<Vec<Schema>, String> {
@@ -1499,6 +2316,36 @@ fn postgres_cell_to_json(row: &tokio_postgres::Row, index: usize) -> JsonValue {
             .unwrap_or(JsonValue::Null);
     }
 
+    if let Ok(value) = row.try_get::<usize, Option<Uuid>>(index) {
+        return value
+            .map(|uuid| JsonValue::String(uuid.to_string()))
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Ok(value) = row.try_get::<usize, Option<NaiveDate>>(index) {
+        return value
+            .map(|date| JsonValue::String(date.to_string()))
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Ok(value) = row.try_get::<usize, Option<NaiveTime>>(index) {
+        return value
+            .map(|time| JsonValue::String(time.format("%H:%M:%S%.f").to_string()))
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Ok(value) = row.try_get::<usize, Option<NaiveDateTime>>(index) {
+        return value
+            .map(|datetime| JsonValue::String(datetime.format("%Y-%m-%d %H:%M:%S%.f").to_string()))
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if let Ok(value) = row.try_get::<usize, Option<ChronoDateTime<Utc>>>(index) {
+        return value
+            .map(|datetime| JsonValue::String(datetime.to_rfc3339()))
+            .unwrap_or(JsonValue::Null);
+    }
+
     if let Ok(value) = row.try_get::<usize, Option<String>>(index) {
         return value.map(JsonValue::String).unwrap_or(JsonValue::Null);
     }
@@ -1532,6 +2379,448 @@ fn json_to_mysql_param(value: &JsonValue) -> MySqlValue {
             MySqlValue::Bytes(value.to_string().into_bytes())
         }
     }
+}
+
+async fn execute_redis_preview_payload(
+    connection: &mut redis::aio::MultiplexedConnection,
+    payload: &JsonValue,
+    default_db_index: u32,
+) -> Result<Option<JsonValue>, String> {
+    let op = payload
+        .get("op")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+
+    if op != "preview-key" {
+        return Ok(None);
+    }
+
+    let database = payload
+        .get("database")
+        .and_then(|value| value.as_str())
+        .unwrap_or("db0");
+    let key = payload
+        .get("key")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    if key.trim().is_empty() {
+        return Err("Redis preview requires a key name.".to_string());
+    }
+
+    let db_index = parse_redis_database_name(database)?;
+    if db_index != default_db_index {
+        let _: String = redis::cmd("SELECT")
+            .arg(db_index)
+            .query_async(connection)
+            .await
+            .map_err(|error| format!("Redis database select failed: {error}"))?;
+    }
+    let key_type: String = redis::cmd("TYPE")
+        .arg(key)
+        .query_async(connection)
+        .await
+        .map_err(|error| format!("Redis TYPE failed for key '{key}': {error}"))?;
+    let limit = payload
+        .get("limit")
+        .and_then(|value| value.as_i64())
+        .map(|value| value.clamp(1, 10_000))
+        .unwrap_or(200);
+    let result = match key_type.as_str() {
+        "string" => {
+            let value: Option<String> = redis::cmd("GET")
+                .arg(key)
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis GET failed for key '{key}': {error}"))?;
+            JsonValue::Array(vec![serde_json::json!({
+                "key": key,
+                "type": "string",
+                "value": value
+            })])
+        }
+        "hash" => {
+            let entries: Vec<(String, String)> = redis::cmd("HGETALL")
+                .arg(key)
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis HGETALL failed for key '{key}': {error}"))?;
+            JsonValue::Array(
+                entries
+                    .into_iter()
+                    .map(|(field, value)| {
+                        serde_json::json!({
+                            "key": key,
+                            "field": field,
+                            "value": value
+                        })
+                    })
+                    .collect(),
+            )
+        }
+        "list" => {
+            let items: Vec<String> = redis::cmd("LRANGE")
+                .arg(key)
+                .arg(0)
+                .arg(limit - 1)
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis LRANGE failed for key '{key}': {error}"))?;
+            JsonValue::Array(
+                items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, value)| {
+                        serde_json::json!({
+                            "key": key,
+                            "index": index as i64,
+                            "value": value
+                        })
+                    })
+                    .collect(),
+            )
+        }
+        "set" => {
+            let items: Vec<String> = redis::cmd("SMEMBERS")
+                .arg(key)
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis SMEMBERS failed for key '{key}': {error}"))?;
+            JsonValue::Array(
+                items
+                    .into_iter()
+                    .map(|value| serde_json::json!({ "key": key, "value": value }))
+                    .collect(),
+            )
+        }
+        "zset" => {
+            let items: Vec<String> = redis::cmd("ZRANGE")
+                .arg(key)
+                .arg(0)
+                .arg(limit - 1)
+                .arg("WITHSCORES")
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis ZRANGE failed for key '{key}': {error}"))?;
+            let mut rows: Vec<JsonValue> = Vec::new();
+            for chunk in items.chunks(2) {
+                let value = chunk.get(0).cloned().unwrap_or_default();
+                let score = chunk.get(1).cloned().unwrap_or_default();
+                rows.push(serde_json::json!({
+                    "key": key,
+                    "value": value,
+                    "score": score
+                }));
+            }
+            JsonValue::Array(rows)
+        }
+        "stream" => {
+            let value: redis::Value = redis::cmd("XRANGE")
+                .arg(key)
+                .arg("-")
+                .arg("+")
+                .arg("COUNT")
+                .arg(limit)
+                .query_async(connection)
+                .await
+                .map_err(|error| format!("Redis XRANGE failed for key '{key}': {error}"))?;
+            JsonValue::Array(vec![serde_json::json!({
+                "key": key,
+                "type": "stream",
+                "entries": redis_value_to_json(value)
+            })])
+        }
+        _ => {
+            let value: redis::Value = match redis::cmd("GET")
+                .arg(key)
+                .query_async(connection)
+                .await
+            {
+                Ok(value) => value,
+                Err(_) => redis::Value::Nil,
+            };
+            JsonValue::Array(vec![serde_json::json!({
+                "key": key,
+                "type": key_type,
+                "value": redis_value_to_json(value)
+            })])
+        }
+    };
+
+    Ok(Some(result))
+}
+
+fn parse_redis_database_name(schema: &str) -> Result<u32, String> {
+    let normalized = schema.trim().to_lowercase();
+    let db_part = normalized
+        .strip_prefix("db")
+        .unwrap_or(normalized.as_str())
+        .trim();
+
+    db_part
+        .parse::<u32>()
+        .map_err(|_| format!("Invalid Redis database name: '{schema}'. Expected values like db0."))
+}
+
+fn redis_default_database_index(client: &RedisClient) -> u32 {
+    let db_index = client.get_connection_info().redis.db.max(0);
+    u32::try_from(db_index).unwrap_or(0)
+}
+
+async fn redis_scan_keys(
+    connection: &mut redis::aio::MultiplexedConnection,
+    max_keys: usize,
+) -> Result<Vec<String>, String> {
+    let mut cursor: u64 = 0;
+    let mut keys: Vec<String> = Vec::new();
+
+    loop {
+        let (next_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg("*")
+            .arg("COUNT")
+            .arg(200)
+            .query_async(connection)
+            .await
+            .map_err(|error| format!("Redis SCAN failed: {error}"))?;
+
+        keys.extend(batch);
+
+        if next_cursor == 0 || keys.len() >= max_keys {
+            break;
+        }
+
+        cursor = next_cursor;
+    }
+
+    keys.sort();
+    keys.dedup();
+    keys.truncate(max_keys);
+    Ok(keys)
+}
+
+fn parse_redis_command_tokens(command: &str) -> Vec<String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = '\0';
+
+    for character in trimmed.chars() {
+        if in_quotes {
+            if character == quote_char {
+                in_quotes = false;
+            } else {
+                current.push(character);
+            }
+            continue;
+        }
+
+        if character == '"' || character == '\'' {
+            in_quotes = true;
+            quote_char = character;
+            continue;
+        }
+
+        if character.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(current.clone());
+                current.clear();
+            }
+            continue;
+        }
+
+        current.push(character);
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn redis_value_to_json(value: redis::Value) -> JsonValue {
+    match value {
+        redis::Value::Nil => JsonValue::Null,
+        redis::Value::Int(number) => JsonValue::Number(number.into()),
+        redis::Value::BulkString(bytes) => match String::from_utf8(bytes.clone()) {
+            Ok(text) => JsonValue::String(text),
+            Err(_) => JsonValue::Array(bytes.into_iter().map(JsonValue::from).collect()),
+        },
+        redis::Value::Array(values) => {
+            JsonValue::Array(values.into_iter().map(redis_value_to_json).collect())
+        }
+        redis::Value::SimpleString(value) => JsonValue::String(value),
+        redis::Value::Okay => JsonValue::String("OK".to_string()),
+        redis::Value::Map(entries) => JsonValue::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (json_value_to_plain_string(&redis_value_to_json(key)), redis_value_to_json(value)))
+                .collect(),
+        ),
+        redis::Value::Set(values) => {
+            JsonValue::Array(values.into_iter().map(redis_value_to_json).collect())
+        }
+        redis::Value::Double(number) => JsonNumber::from_f64(number)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        redis::Value::Boolean(value) => JsonValue::Bool(value),
+        redis::Value::VerbatimString { text, .. } => JsonValue::String(text),
+        redis::Value::BigNumber(value) => JsonValue::String(value.to_string()),
+        redis::Value::Push { kind, data } => JsonValue::Object(
+            [
+                ("kind".to_string(), JsonValue::String(kind.to_string())),
+                (
+                    "data".to_string(),
+                    JsonValue::Array(data.into_iter().map(redis_value_to_json).collect()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        redis::Value::Attribute { data, attributes } => JsonValue::Object(
+            [
+                ("data".to_string(), redis_value_to_json(*data)),
+                (
+                    "attributes".to_string(),
+                    JsonValue::Array(
+                        attributes
+                            .into_iter()
+                            .map(|(key, value)| {
+                                JsonValue::Object(
+                                    [
+                                        ("key".to_string(), redis_value_to_json(key)),
+                                        ("value".to_string(), redis_value_to_json(value)),
+                                    ]
+                                    .into_iter()
+                                    .collect(),
+                                )
+                            })
+                            .collect(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        _ => JsonValue::String("<unsupported-redis-value>".to_string()),
+    }
+}
+
+fn json_value_to_query_result(value: JsonValue, started: Instant) -> QueryResult {
+    let (columns, rows) = json_value_to_rows(value);
+
+    QueryResult {
+        columns,
+        row_count: rows.len(),
+        rows,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    }
+}
+
+fn json_value_to_rows(value: JsonValue) -> (Vec<QueryColumn>, Vec<JsonValue>) {
+    match value {
+        JsonValue::Array(entries) => {
+            if entries
+                .iter()
+                .all(|entry| matches!(entry, JsonValue::Object(_)))
+            {
+                let mut ordered_column_names: Vec<String> = Vec::new();
+                for entry in &entries {
+                    if let JsonValue::Object(object) = entry {
+                        for key in object.keys() {
+                            if !ordered_column_names.contains(key) {
+                                ordered_column_names.push(key.to_string());
+                            }
+                        }
+                    }
+                }
+
+                let columns = ordered_column_names
+                    .iter()
+                    .map(|name| QueryColumn {
+                        name: name.to_string(),
+                        db_type: "json".to_string(),
+                        nullable: true,
+                    })
+                    .collect();
+                return (columns, entries);
+            }
+
+            let rows = entries
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    serde_json::json!({
+                        "index": index as i64,
+                        "value": item
+                    })
+                })
+                .collect::<Vec<JsonValue>>();
+            let columns = vec![
+                QueryColumn {
+                    name: "index".to_string(),
+                    db_type: "int".to_string(),
+                    nullable: false,
+                },
+                QueryColumn {
+                    name: "value".to_string(),
+                    db_type: "json".to_string(),
+                    nullable: true,
+                },
+            ];
+            (columns, rows)
+        }
+        JsonValue::Object(object) => {
+            let columns = object
+                .keys()
+                .map(|name| QueryColumn {
+                    name: name.to_string(),
+                    db_type: "json".to_string(),
+                    nullable: true,
+                })
+                .collect();
+            (columns, vec![JsonValue::Object(object)])
+        }
+        primitive => {
+            let columns = vec![QueryColumn {
+                name: "result".to_string(),
+                db_type: "json".to_string(),
+                nullable: true,
+            }];
+            let rows = vec![serde_json::json!({ "result": primitive })];
+            (columns, rows)
+        }
+    }
+}
+
+fn json_value_to_plain_string(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(boolean) => boolean.to_string(),
+        JsonValue::Number(number) => number.to_string(),
+        JsonValue::String(string) => string.to_string(),
+        JsonValue::Array(_) | JsonValue::Object(_) => value.to_string(),
+    }
+}
+
+fn json_value_to_mongo_document(value: &JsonValue) -> Option<MongoDocument> {
+    match value {
+        JsonValue::Object(_) => mongodb::bson::serialize_to_document(value).ok(),
+        _ => None,
+    }
+}
+
+fn mongo_document_to_json_value(document: MongoDocument) -> Result<JsonValue, String> {
+    serde_json::to_value(document)
+        .map_err(|error| format!("MongoDB JSON serialization failed: {error}"))
 }
 
 fn normalize_sql_server_host_input(raw_host: &str) -> Result<String, String> {
@@ -1626,10 +2915,10 @@ fn validate_connection_input(connection: &DesktopConnectionConfig) -> Result<(),
     }
 
     match connection.dialect.as_str() {
-        "postgres" | "mysql" | "sqlserver" | "sqlite" => {}
+        "postgres" | "mysql" | "sqlserver" | "sqlite" | "redis" | "mongodb" => {}
         _ => {
             return Err(format!(
-                "connection.dialect must be one of postgres, mysql, sqlserver, sqlite. Received '{}'.",
+                "connection.dialect must be one of postgres, mysql, sqlserver, sqlite, redis, mongodb. Received '{}'.",
                 connection.dialect
             ));
         }
@@ -1648,8 +2937,23 @@ fn validate_connection_input(connection: &DesktopConnectionConfig) -> Result<(),
             return Err("connection.port must be greater than zero".into());
         }
 
-        if connection.user.is_empty() {
+        if (connection.dialect == "postgres"
+            || connection.dialect == "mysql"
+            || connection.dialect == "sqlserver")
+            && connection.user.is_empty()
+        {
             return Err("connection.user is required".into());
+        }
+    }
+
+    if connection.dialect == "postgres" {
+        if let Some(preferred_tls_mode) = connection.preferred_tls_mode.as_deref() {
+            if PostgresConnectMode::from_storage_value(preferred_tls_mode).is_none() {
+                return Err(format!(
+                    "connection.preferredTlsMode must be one of tls-verified-cert, tls-allow-invalid-cert, non-tls. Received '{}'.",
+                    preferred_tls_mode
+                ));
+            }
         }
     }
 

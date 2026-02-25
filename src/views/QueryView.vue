@@ -58,6 +58,7 @@ const activeSavedQuery = computed(() => {
 const schemaOptions = computed(() => {
   const options = new Set<string>();
   const savedSchemaName = activeSavedQuery.value?.schemaName.trim();
+  const activeDialect = connectionsStore.activeProfile?.target.dialect;
 
   if (savedSchemaName) {
     options.add(savedSchemaName);
@@ -72,7 +73,13 @@ const schemaOptions = computed(() => {
   });
 
   if (options.size === 0) {
-    options.add("public");
+    options.add(
+      activeDialect === "redis"
+        ? "db0"
+        : activeDialect === "mongodb"
+          ? "admin"
+          : "public",
+    );
   }
 
   return Array.from(options);

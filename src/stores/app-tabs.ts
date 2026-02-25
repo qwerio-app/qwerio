@@ -60,7 +60,7 @@ function toPageAppTabId(pageKey: string): string {
 }
 
 function isTabbablePageKey(pageKey: string): boolean {
-  return pageKey.startsWith("table:");
+  return pageKey.startsWith("table:") || pageKey.startsWith("collection:");
 }
 
 function isTabbableAppTab(tab: AppTab): boolean {

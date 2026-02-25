@@ -130,6 +130,13 @@ function closeValueViewer(): void {
 function renderCell(params: ICellRendererParams): string | HTMLElement {
   const fieldName = params.colDef?.field ?? "";
 
+  if (params.value === null || params.value === undefined) {
+    const nullText = document.createElement("span");
+    nullText.className = "text-[var(--chrome-ink-muted)]";
+    nullText.textContent = "null";
+    return nullText;
+  }
+
   if (!isViewableValue(params.value)) {
     return toCellPreview(params.value);
   }

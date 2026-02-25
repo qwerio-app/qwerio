@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { ConnectionProfile } from "../types";
+import type { ConnectionProfile, DataObjectType } from "../types";
 
 const DATABASE_NAME = "qwerio.app";
 const TABLE_OBJECT_TYPE_SQL_PREFIX = "__qwerio_object_type__:";
@@ -20,7 +20,7 @@ export type StoredWorkbenchTableTab = {
   connectionId: string;
   schemaName: string;
   tableName: string;
-  objectType: "table" | "view";
+  objectType: DataObjectType;
 };
 
 export type StoredAppQueryTab = {
@@ -176,16 +176,24 @@ function toTablePath(tabId: string): string {
   return `/tables/${tabId}`;
 }
 
+function toCollectionPath(tabId: string): string {
+  return `/collections/${tabId}`;
+}
+
 function toTablePageKey(tabId: string): string {
   return `table:${tabId}`;
 }
 
-function parseTableTabIdFromPageKey(pageKey: string): string | null {
-  if (!pageKey.startsWith("table:")) {
+function toCollectionPageKey(tabId: string): string {
+  return `collection:${tabId}`;
+}
+
+function parseObjectTabIdFromPageKey(pageKey: string): string | null {
+  if (!pageKey.startsWith("table:") && !pageKey.startsWith("collection:")) {
     return null;
   }
 
-  const tabId = pageKey.slice("table:".length).trim();
+  const tabId = pageKey.slice(pageKey.indexOf(":") + 1).trim();
   return tabId.length > 0 ? tabId : null;
 }
 
@@ -207,7 +215,39 @@ function decodeTableObjectType(
   }
 
   const value = sql.slice(TABLE_OBJECT_TYPE_SQL_PREFIX.length);
-  return value === "view" ? "view" : "table";
+  switch (value) {
+    case "view":
+    case "collection":
+    case "redis-string":
+    case "redis-hash":
+    case "redis-list":
+    case "redis-set":
+    case "redis-zset":
+    case "redis-stream":
+    case "redis-key":
+      return value;
+    default:
+      return "table";
+  }
+}
+
+function isCollectionObjectType(objectType: DataObjectType): boolean {
+  return (
+    objectType === "collection" ||
+    objectType.startsWith("redis-")
+  );
+}
+
+function toObjectPath(tabId: string, objectType: DataObjectType): string {
+  return isCollectionObjectType(objectType)
+    ? toCollectionPath(tabId)
+    : toTablePath(tabId);
+}
+
+function toObjectPageKey(tabId: string, objectType: DataObjectType): string {
+  return isCollectionObjectType(objectType)
+    ? toCollectionPageKey(tabId)
+    : toTablePageKey(tabId);
 }
 
 function parseTableTitle(title: string): {
@@ -452,6 +492,7 @@ export async function saveWorkbenchTabsToStorage(input: {
         ...input.tableTabs.map((tab, order) => {
           const tabKey = toTabRecordKey("table", tab.id);
           const existingRecord = existingByTabKey.get(tabKey);
+          const objectType = tab.objectType ?? "table";
 
           return {
             id: existingRecord?.id ?? toTabRecordKey("table", tab.id),
@@ -459,8 +500,8 @@ export async function saveWorkbenchTabsToStorage(input: {
             order: input.queryTabs.length + order,
             connectionId: tab.connectionId,
             tabId: tab.id,
-            path: existingRecord?.path ?? toTablePath(tab.id),
-            sql: encodeTableObjectType(tab.objectType ?? "table"),
+            path: existingRecord?.path ?? toObjectPath(tab.id, objectType),
+            sql: encodeTableObjectType(objectType),
             title: tab.title,
             updatedAt: timestamp,
           };
@@ -520,8 +561,13 @@ export async function loadAppTabsFromStorage(
               id: tab.id,
               connectionId,
               title: tab.title,
-              routePath: tab.path || toTablePath(tab.tabId),
-              pageKey: toTablePageKey(tab.tabId),
+              routePath:
+                tab.path ||
+                toObjectPath(tab.tabId, decodeTableObjectType(tab.sql)),
+              pageKey: toObjectPageKey(
+                tab.tabId,
+                decodeTableObjectType(tab.sql),
+              ),
             },
       );
   }, []);
@@ -581,7 +627,7 @@ export async function saveAppTabsToStorage(
           return;
         }
 
-        const tableTabId = parseTableTabIdFromPageKey(tab.pageKey);
+        const tableTabId = parseObjectTabIdFromPageKey(tab.pageKey);
         if (!tableTabId) {
           return;
         }
@@ -589,17 +635,23 @@ export async function saveAppTabsToStorage(
         const existingRecord = existingByTabKey.get(
           toTabRecordKey("table", tableTabId),
         );
+        const fallbackObjectType =
+          existingRecord?.type === "table"
+            ? decodeTableObjectType(existingRecord.sql)
+            : tab.pageKey.startsWith("collection:")
+              ? "collection"
+              : "table";
         records.push({
           id: existingRecord?.id ?? toTabRecordKey("table", tableTabId),
           type: "table",
           order,
           connectionId: scopedConnectionId,
           tabId: tableTabId,
-          path: tab.routePath || toTablePath(tableTabId),
+          path: tab.routePath || toObjectPath(tableTabId, fallbackObjectType),
           sql:
             existingRecord?.type === "table"
               ? existingRecord.sql
-              : encodeTableObjectType("table"),
+              : encodeTableObjectType(fallbackObjectType),
           title: resolveTableRecordTitle(
             tab.title,
             existingRecord?.title ?? null,

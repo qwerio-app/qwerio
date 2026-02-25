@@ -43,6 +43,11 @@ const router = createRouter({
           component: () => import("../views/TableView.vue"),
         },
         {
+          path: "collections/:collectionTabId",
+          name: "collection",
+          component: () => import("../views/CollectionView.vue"),
+        },
+        {
           path: "settings",
           name: "settings",
           component: () => import("../views/SettingsView.vue"),

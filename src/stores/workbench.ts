@@ -10,7 +10,12 @@ import {
   isLikelyTabularQuery,
   stripTrailingSemicolons,
 } from "../core/sql-pagination";
-import type { ConnectionProfile, QueryResult } from "../core/types";
+import type {
+  ConnectionProfile,
+  DataObjectType,
+  DesktopPostgresTlsMode,
+  QueryResult,
+} from "../core/types";
 import { useAppSettingsStore } from "./app-settings";
 import { useConnectionsStore } from "./connections";
 import { useVaultStore } from "./vault";
@@ -36,14 +41,14 @@ export type TableTab = {
   connectionId: string;
   schemaName: string;
   tableName: string;
-  objectType?: "table" | "view";
+  objectType?: DataObjectType;
 };
 
 type OpenTableTabInput = {
   connectionId: string;
   schemaName: string;
   tableName: string;
-  objectType?: "table" | "view";
+  objectType?: DataObjectType;
 };
 
 type TableMap = Record<string, Array<{ name: string }>>;
@@ -427,7 +432,13 @@ export const useWorkbenchStore = defineStore("workbench", () => {
           ? "sqlite"
           : activeConnection?.target.dialect === "sqlserver"
             ? "transactsql"
-            : "postgresql";
+            : activeConnection?.target.dialect === "postgres"
+              ? "postgresql"
+              : null;
+
+    if (!language) {
+      return;
+    }
 
     tab.sql = format(tab.sql, { language });
   }
@@ -444,6 +455,24 @@ export const useWorkbenchStore = defineStore("workbench", () => {
     );
   }
 
+  function applyResolvedDesktopTlsMode(
+    connection: ConnectionProfile,
+    connectResult: { resolvedDesktopTlsMode?: DesktopPostgresTlsMode },
+  ): void {
+    if (
+      connection.target.kind !== "desktop-tcp" ||
+      connection.target.dialect !== "postgres" ||
+      !connectResult.resolvedDesktopTlsMode
+    ) {
+      return;
+    }
+
+    connectionStore.setDesktopPostgresTlsMode(
+      connection.id,
+      connectResult.resolvedDesktopTlsMode,
+    );
+  }
+
   async function executeQueryPage(input: {
     tab: QueryTab;
     connection: ConnectionProfile;
@@ -455,7 +484,8 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
     try {
       const engine = getQueryEngine();
-      await engine.connect(input.connection);
+      const connectResult = await engine.connect(input.connection);
+      applyResolvedDesktopTlsMode(input.connection, connectResult);
 
       const normalizedBaseSql = stripTrailingSemicolons(input.baseSql);
       const shouldPaginate = isLikelyTabularQuery(normalizedBaseSql);
@@ -586,10 +616,17 @@ export const useWorkbenchStore = defineStore("workbench", () => {
 
     try {
       const engine = getQueryEngine();
-      await engine.connect(activeConnection);
+      const connectResult = await engine.connect(activeConnection);
+      applyResolvedDesktopTlsMode(activeConnection, connectResult);
       let schemas = await engine.listSchemas(activeConnection.id);
 
-      if (schemas.length === 0) {
+      if (
+        schemas.length === 0 &&
+        (activeConnection.target.dialect === "postgres" ||
+          activeConnection.target.dialect === "mysql" ||
+          activeConnection.target.dialect === "sqlite" ||
+          activeConnection.target.dialect === "sqlserver")
+      ) {
         try {
           const fallbackSql =
             activeConnection.target.dialect === "postgres"

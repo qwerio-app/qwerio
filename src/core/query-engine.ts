@@ -1,4 +1,9 @@
-import type { ConnectionProfile, QueryRequest, QueryResult } from "./types";
+import type {
+  ConnectionProfile,
+  DesktopPostgresTlsMode,
+  QueryRequest,
+  QueryResult,
+} from "./types";
 
 export type SchemaObject = { name: string };
 
@@ -26,7 +31,9 @@ export function createEmptySchemaObjectMap(): SchemaObjectMap {
 }
 
 export interface QueryEngine {
-  connect(connection: ConnectionProfile): Promise<void>;
+  connect(connection: ConnectionProfile): Promise<{
+    resolvedDesktopTlsMode?: DesktopPostgresTlsMode;
+  }>;
   execute(req: QueryRequest): Promise<QueryResult>;
   cancel(requestId: string): Promise<void>;
   listSchemas(connectionId: string): Promise<Array<{ name: string }>>;

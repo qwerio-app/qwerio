@@ -1,13 +1,32 @@
 import type { RuntimeMode } from "./runtime";
 
-export type DbDialect = "postgres" | "mysql" | "sqlserver" | "sqlite";
+export type DbDialect =
+  | "postgres"
+  | "mysql"
+  | "sqlserver"
+  | "sqlite"
+  | "redis"
+  | "mongodb";
 
 export type ConnectionProfileType = "personal" | "team";
+export type DesktopPostgresTlsMode =
+  | "tls-verified-cert"
+  | "tls-allow-invalid-cert"
+  | "non-tls";
 
 export type DesktopConnectionTarget =
   | {
       kind: "desktop-tcp";
-      dialect: "postgres" | "mysql" | "sqlserver";
+      dialect: "postgres";
+      host: string;
+      port: number;
+      database: string;
+      user: string;
+      tlsMode?: DesktopPostgresTlsMode;
+    }
+  | {
+      kind: "desktop-tcp";
+      dialect: "mysql" | "sqlserver";
       host: string;
       port: number;
       database: string;
@@ -17,6 +36,22 @@ export type DesktopConnectionTarget =
       kind: "desktop-tcp";
       dialect: "sqlite";
       database: string;
+    }
+  | {
+      kind: "desktop-tcp";
+      dialect: "redis";
+      host: string;
+      port: number;
+      database: string;
+      user?: string;
+    }
+  | {
+      kind: "desktop-tcp";
+      dialect: "mongodb";
+      host: string;
+      port: number;
+      database: string;
+      user?: string;
     };
 
 export type ConnectionTarget =
@@ -44,7 +79,41 @@ export type ConnectionTarget =
       endpoint: string;
       username: string;
       projectId?: string;
+    }
+  | {
+      kind: "web-provider";
+      dialect: "redis";
+      provider: "redis-proxy";
+      endpoint: string;
+      host: string;
+      port: number;
+      database: string;
+      user?: string;
+      projectId?: string;
+    }
+  | {
+      kind: "web-provider";
+      dialect: "mongodb";
+      provider: "mongo-proxy";
+      endpoint: string;
+      host: string;
+      port: number;
+      database: string;
+      user?: string;
+      projectId?: string;
     };
+
+export type DataObjectType =
+  | "table"
+  | "view"
+  | "collection"
+  | "redis-string"
+  | "redis-hash"
+  | "redis-list"
+  | "redis-set"
+  | "redis-zset"
+  | "redis-stream"
+  | "redis-key";
 
 export type EncryptedConnectionPassword = {
   version: 1;

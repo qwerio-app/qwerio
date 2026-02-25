@@ -57,6 +57,12 @@ const editorOptions = {
 };
 
 const monacoTheme = "qwerio-dark";
+const editorTitle = computed(() => {
+  const dialect = connectionsStore.activeProfile?.target.dialect;
+  return dialect === "redis" || dialect === "mongodb"
+    ? "Command Editor"
+    : "SQL Editor";
+});
 
 function resolveSchemaObjectMapForAutocomplete(): Record<string, SchemaObjectMap> {
   const activeConnection = connectionsStore.activeProfile;
@@ -227,7 +233,7 @@ onBeforeUnmount(() => {
       <p
         class="font-display text-base font-semibold tracking-[0.05em] text-[var(--chrome-ink)]"
       >
-        SQL Editor
+        {{ editorTitle }}
       </p>
 
       <div class="flex items-center gap-1.5">

@@ -29,6 +29,10 @@ export function buildPaginatedSql(input: {
     : normalizedPageSize;
   const offset = (normalizedPage - 1) * normalizedPageSize;
 
+  if (input.dialect === "redis" || input.dialect === "mongodb") {
+    return normalizedSql;
+  }
+
   if (input.dialect === "sqlserver") {
     return `select * from (${normalizedSql}) as qwerio_page order by (select null) offset ${offset} rows fetch next ${limit} rows only`;
   }

@@ -6,7 +6,11 @@ import ResultsGrid from "../components/workbench/ResultsGrid.vue";
 import { getQueryEngine } from "../core/query-engine-service";
 import { clampPageSize, buildPaginatedSql } from "../core/sql-pagination";
 import { SecretPinRequiredError } from "../core/secret-vault";
-import type { ConnectionProfile, QueryResult } from "../core/types";
+import type {
+  ConnectionProfile,
+  DesktopPostgresTlsMode,
+  QueryResult,
+} from "../core/types";
 import { useAppSettingsStore } from "../stores/app-settings";
 import { useConnectionsStore } from "../stores/connections";
 import { useVaultStore } from "../stores/vault";
@@ -80,6 +84,24 @@ const connectionProfile = computed<ConnectionProfile | null>(() => {
     ) ?? null
   );
 });
+
+function applyResolvedDesktopTlsMode(
+  connection: ConnectionProfile,
+  connectResult: { resolvedDesktopTlsMode?: DesktopPostgresTlsMode },
+): void {
+  if (
+    connection.target.kind !== "desktop-tcp" ||
+    connection.target.dialect !== "postgres" ||
+    !connectResult.resolvedDesktopTlsMode
+  ) {
+    return;
+  }
+
+  connectionsStore.setDesktopPostgresTlsMode(
+    connection.id,
+    connectResult.resolvedDesktopTlsMode,
+  );
+}
 
 const tableTitle = computed(() => {
   if (!tableTab.value) {
@@ -367,7 +389,8 @@ async function loadTableRows(page = 1): Promise<void> {
 
   try {
     const engine = getQueryEngine();
-    await engine.connect(profile);
+    const connectResult = await engine.connect(profile);
+    applyResolvedDesktopTlsMode(profile, connectResult);
     try {
       await loadPrimaryKeyColumns(profile);
     } catch {
@@ -583,7 +606,8 @@ async function confirmPendingChanges(): Promise<void> {
     });
 
     const engine = getQueryEngine();
-    await engine.connect(profile);
+    const connectResult = await engine.connect(profile);
+    applyResolvedDesktopTlsMode(profile, connectResult);
     const fromClause = buildFromClause(profile);
 
     for (const rowUpdate of groupedByRow.values()) {

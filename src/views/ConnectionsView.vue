@@ -12,6 +12,7 @@ import {
 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { clearSessionConnectionPassword } from "../core/connection-secrets";
+import { toErrorMessage } from "../core/error-message";
 import { getQueryEngine, getRuntimeMode } from "../core/query-engine-service";
 import {
   encryptConnectionPassword,
@@ -71,6 +72,16 @@ const DESKTOP_DEFAULT_PORTS: Record<DbDialect, number> = {
   mysql: 3306,
   sqlserver: 1433,
   sqlite: 0,
+  redis: 6379,
+  mongodb: 27017,
+};
+const DIALECT_LABELS: Record<DbDialect, string> = {
+  postgres: "Postgres",
+  mysql: "MySQL",
+  sqlserver: "SQL Server",
+  sqlite: "SQLite",
+  redis: "Redis",
+  mongodb: "MongoDB",
 };
 
 const form = reactive({
@@ -122,6 +133,22 @@ const sections = computed(() => {
 const isDesktopSqlite = computed(
   () => !isWebRuntime && form.dialect === "sqlite",
 );
+
+const webDialectLabel = computed(() => {
+  if (form.provider === "planetscale") {
+    return "mysql";
+  }
+
+  if (form.provider === "redis-proxy") {
+    return "redis";
+  }
+
+  if (form.provider === "mongo-proxy") {
+    return "mongodb";
+  }
+
+  return "postgres";
+});
 
 const shouldShowPasswordStorage = computed(() => {
   if (isDesktopSqlite.value) {
@@ -189,7 +216,24 @@ function connectionTargetLabel(profile: ConnectionProfile): string {
     return `${profile.target.provider} · ${profile.target.endpoint} · ${profile.target.username}`;
   }
 
+  if (
+    profile.target.provider === "redis-proxy" ||
+    profile.target.provider === "mongo-proxy"
+  ) {
+    return `${profile.target.provider} · ${profile.target.endpoint} · ${profile.target.host}:${profile.target.port}/${profile.target.database}`;
+  }
+
   return `${profile.target.provider} · ${profile.target.endpoint}`;
+}
+
+function formatDialectLabel(dialect: DbDialect): string {
+  const label = DIALECT_LABELS[dialect];
+
+  if (dialect === "redis" || dialect === "mongodb") {
+    return `${label} (BETA)`;
+  }
+
+  return label;
 }
 
 function connectionCredentialLabel(profile: ConnectionProfile): string {
@@ -324,14 +368,30 @@ function toConnectionTargetAndPassword(): TargetWithPassword | null {
       };
     }
 
+    if (form.dialect === "redis" || form.dialect === "mongodb") {
+      return {
+        target: {
+          kind: "desktop-tcp",
+          dialect: form.dialect,
+          host: form.host.trim(),
+          port: Number(form.port),
+          database: form.database.trim(),
+          ...(form.user.trim().length > 0
+            ? { user: form.user.trim() }
+            : {}),
+        },
+        password: form.password || undefined,
+      };
+    }
+
     return {
       target: {
         kind: "desktop-tcp",
         dialect: form.dialect,
-        host: form.host,
+        host: form.host.trim(),
         port: Number(form.port),
-        database: form.database,
-        user: form.user,
+        database: form.database.trim(),
+        user: form.user.trim(),
       },
       password: form.password || undefined,
     };
@@ -352,6 +412,54 @@ function toConnectionTargetAndPassword(): TargetWithPassword | null {
         username: form.providerUsername.trim(),
         projectId: form.projectId || undefined,
       },
+      password: form.password || undefined,
+    };
+  }
+
+  if (form.provider === "redis-proxy" || form.provider === "mongo-proxy") {
+    const host = form.host.trim();
+    const port = Number(form.port);
+    const database = form.database.trim();
+
+    if (!host || !database) {
+      feedback.value = "Host and database are required for this provider.";
+      return null;
+    }
+
+    if (!Number.isFinite(port) || port <= 0) {
+      feedback.value = "Port must be a positive number.";
+      return null;
+    }
+
+    return {
+      target:
+        form.provider === "redis-proxy"
+          ? {
+              kind: "web-provider",
+              dialect: "redis",
+              provider: "redis-proxy",
+              endpoint: form.endpoint.trim() || "default",
+              host,
+              port,
+              database,
+              ...(form.user.trim().length > 0
+                ? { user: form.user.trim() }
+                : {}),
+              projectId: form.projectId || undefined,
+            }
+          : {
+              kind: "web-provider",
+              dialect: "mongodb",
+              provider: "mongo-proxy",
+              endpoint: form.endpoint.trim() || "default",
+              host,
+              port,
+              database,
+              ...(form.user.trim().length > 0
+                ? { user: form.user.trim() }
+                : {}),
+              projectId: form.projectId || undefined,
+            },
       password: form.password || undefined,
     };
   }
@@ -547,7 +655,7 @@ function hydrateFormFromProfile(profile: ConnectionProfile): void {
     } else {
       form.host = profile.target.host;
       form.port = profile.target.port;
-      form.user = profile.target.user;
+      form.user = profile.target.user ?? "";
     }
 
     return;
@@ -560,6 +668,18 @@ function hydrateFormFromProfile(profile: ConnectionProfile): void {
 
   if (profile.target.provider === "planetscale") {
     form.providerUsername = profile.target.username;
+    return;
+  }
+
+  if (
+    profile.target.provider === "redis-proxy" ||
+    profile.target.provider === "mongo-proxy"
+  ) {
+    form.host = profile.target.host;
+    form.port = profile.target.port;
+    form.database = profile.target.database;
+    form.user = profile.target.user ?? "";
+    form.neonInputMode = "connection-details";
     return;
   }
 
@@ -620,9 +740,19 @@ async function testConnection(): Promise<void> {
 
     const engine = getQueryEngine();
     await engine.connect(testProfile);
+    const testCommand =
+      testProfile.target.dialect === "redis"
+        ? "PING"
+        : testProfile.target.dialect === "mongodb"
+          ? JSON.stringify({
+              op: "command",
+              database: testProfile.target.database,
+              command: { ping: 1 },
+            })
+          : "SELECT 1 AS connection_test";
     await engine.execute({
       connectionId: TEST_CONNECTION_ID,
-      sql: "SELECT 1 AS connection_test",
+      sql: testCommand,
     });
 
     feedback.value = "Connection test succeeded.";
@@ -631,8 +761,7 @@ async function testConnection(): Promise<void> {
       vaultStore.requestUnlockPrompt(error.envelope);
     }
 
-    feedback.value =
-      error instanceof Error ? error.message : "Connection test failed.";
+    feedback.value = toErrorMessage(error, "Connection test failed.");
   } finally {
     isTesting.value = false;
   }
@@ -709,8 +838,7 @@ async function submitConnection(): Promise<void> {
       vaultStore.requestUnlockPrompt(error.envelope);
     }
 
-    feedback.value =
-      error instanceof Error ? error.message : "Unable to save connection.";
+    feedback.value = toErrorMessage(error, "Unable to save connection.");
   } finally {
     isSubmitting.value = false;
   }
@@ -810,7 +938,8 @@ onMounted(() => {
             Runtime mode: {{ runtimeMode }}. Desktop supports direct TCP drivers
             for Postgres, MySQL, and SQL Server plus local SQLite files. Web
             mode uses provider adapters (Neon Serverless, WebSocket Proxy for
-            Postgres, PlanetScale HTTP for MySQL).
+            Postgres, PlanetScale HTTP for MySQL). Redis and MongoDB support is
+            currently BETA.
           </p>
         </div>
 
@@ -965,7 +1094,7 @@ onMounted(() => {
             <p
               class="mt-1 text-[11px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]"
             >
-              {{ profile.target.dialect }}
+              {{ formatDialectLabel(profile.target.dialect) }}
             </p>
             <p class="mt-1 text-[11px] text-[var(--chrome-ink-muted)]">
               {{ connectionCredentialLabel(profile) }}
@@ -1090,7 +1219,6 @@ onMounted(() => {
     <div
       v-if="isModalOpen"
       class="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(7,9,13,0.84)] p-4 backdrop-blur-sm"
-      @click="closeConnectionModal"
     >
       <section
         class="panel relative z-[1] w-full max-w-3xl overflow-hidden"
@@ -1148,14 +1276,14 @@ onMounted(() => {
               <label class="chrome-label">
                 <span>Dialect</span>
                 <select
-                  :value="
-                    form.provider === 'planetscale' ? 'mysql' : 'postgres'
-                  "
+                  :value="webDialectLabel"
                   disabled
                   class="chrome-input mt-1"
                 >
                   <option value="postgres">Postgres</option>
                   <option value="mysql">MySQL</option>
+                  <option value="redis">Redis (BETA)</option>
+                  <option value="mongodb">MongoDB (BETA)</option>
                 </select>
               </label>
 
@@ -1165,6 +1293,8 @@ onMounted(() => {
                   <option value="neon">Neon Serverless (Postgres)</option>
                   <option value="proxy">Postgres (via WS proxy)</option>
                   <option value="planetscale">PlanetScale (MySQL HTTP)</option>
+                  <option value="redis-proxy">Redis (via proxy, BETA)</option>
+                  <option value="mongo-proxy">MongoDB (via proxy, BETA)</option>
                 </select>
               </label>
             </div>
@@ -1176,6 +1306,8 @@ onMounted(() => {
                 <option value="mysql">MySQL</option>
                 <option value="sqlserver">SQL Server</option>
                 <option value="sqlite">SQLite</option>
+                <option value="redis">Redis (BETA)</option>
+                <option value="mongodb">MongoDB (BETA)</option>
               </select>
             </label>
 
@@ -1276,6 +1408,94 @@ onMounted(() => {
                     <span>Username</span>
                     <input
                       v-model="form.providerUsername"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
+                  </label>
+
+                  <label class="chrome-label">
+                    <span>Password (optional)</span>
+                    <input
+                      v-model="form.password"
+                      class="chrome-input mt-1"
+                      type="password"
+                    />
+                  </label>
+                </div>
+
+                <label class="flex items-center justify-end gap-1.5">
+                  <span class="text-[11px] text-[var(--chrome-ink-dim)]">
+                    Show internal and system schemas
+                  </span>
+                  <input
+                    v-model="form.showInternalSchemas"
+                    type="checkbox"
+                    class="size-4 accent-[var(--chrome-red)]"
+                  />
+                </label>
+              </template>
+
+              <template
+                v-else-if="
+                  form.provider === 'redis-proxy' ||
+                  form.provider === 'mongo-proxy'
+                "
+              >
+                <label class="chrome-label">
+                  <span>Proxy Endpoint (optional)</span>
+                  <input
+                    v-model="form.endpoint"
+                    class="chrome-input mt-1"
+                    type="text"
+                    :placeholder="
+                      form.provider === 'redis-proxy'
+                        ? '/api/providers/redis'
+                        : '/api/providers/mongodb'
+                    "
+                  />
+                </label>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="chrome-label">
+                    <span>Hostname</span>
+                    <input
+                      v-model="form.host"
+                      class="chrome-input mt-1"
+                      type="text"
+                    />
+                  </label>
+
+                  <label class="chrome-label">
+                    <span>Port</span>
+                    <input
+                      v-model.number="form.port"
+                      class="chrome-input mt-1"
+                      type="number"
+                    />
+                  </label>
+                </div>
+
+                <label class="chrome-label">
+                  <span>{{
+                    form.provider === "redis-proxy"
+                      ? "Database index"
+                      : "Database"
+                  }}</span>
+                  <input
+                    v-model="form.database"
+                    class="chrome-input mt-1"
+                    type="text"
+                    :placeholder="
+                      form.provider === 'redis-proxy' ? '0' : 'app'
+                    "
+                  />
+                </label>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="chrome-label">
+                    <span>Username (optional)</span>
+                    <input
+                      v-model="form.user"
                       class="chrome-input mt-1"
                       type="text"
                     />

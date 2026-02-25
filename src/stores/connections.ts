@@ -1,7 +1,10 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import { z } from "zod";
-import type { ConnectionProfile } from "../core/types";
+import type {
+  ConnectionProfile,
+  DesktopPostgresTlsMode,
+} from "../core/types";
 import { createNanoId } from "../core/nano-id";
 import {
   getVariableValue,
@@ -10,13 +13,43 @@ import {
   setVariableValue,
 } from "../core/storage/indexed-db";
 
-const desktopTcpTargetSchema = z.object({
+const desktopPostgresTargetSchema = z.object({
   kind: z.literal("desktop-tcp"),
-  dialect: z.enum(["postgres", "mysql", "sqlserver"]),
+  dialect: z.literal("postgres"),
   host: z.string().min(1, "Host is required"),
   port: z.number().int().positive(),
   database: z.string().min(1, "Database is required"),
   user: z.string().min(1, "User is required"),
+  tlsMode: z
+    .enum(["tls-verified-cert", "tls-allow-invalid-cert", "non-tls"])
+    .optional(),
+});
+
+const desktopTcpTargetSchema = z.object({
+  kind: z.literal("desktop-tcp"),
+  dialect: z.enum(["mysql", "sqlserver"]),
+  host: z.string().min(1, "Host is required"),
+  port: z.number().int().positive(),
+  database: z.string().min(1, "Database is required"),
+  user: z.string().min(1, "User is required"),
+});
+
+const desktopRedisTargetSchema = z.object({
+  kind: z.literal("desktop-tcp"),
+  dialect: z.literal("redis"),
+  host: z.string().min(1, "Host is required"),
+  port: z.number().int().positive(),
+  database: z.string().min(1, "Database is required"),
+  user: z.string().optional(),
+});
+
+const desktopMongoTargetSchema = z.object({
+  kind: z.literal("desktop-tcp"),
+  dialect: z.literal("mongodb"),
+  host: z.string().min(1, "Host is required"),
+  port: z.number().int().positive(),
+  database: z.string().min(1, "Database is required"),
+  user: z.string().optional(),
 });
 
 const desktopSqliteTargetSchema = z.object({
@@ -52,6 +85,30 @@ const planetScaleTargetSchema = z.object({
   projectId: z.string().optional(),
 });
 
+const redisProxyTargetSchema = z.object({
+  kind: z.literal("web-provider"),
+  dialect: z.literal("redis"),
+  provider: z.literal("redis-proxy"),
+  endpoint: z.string().min(1, "Endpoint is required"),
+  host: z.string().min(1, "Host is required"),
+  port: z.number().int().positive(),
+  database: z.string().min(1, "Database is required"),
+  user: z.string().optional(),
+  projectId: z.string().optional(),
+});
+
+const mongoProxyTargetSchema = z.object({
+  kind: z.literal("web-provider"),
+  dialect: z.literal("mongodb"),
+  provider: z.literal("mongo-proxy"),
+  endpoint: z.string().min(1, "Endpoint is required"),
+  host: z.string().min(1, "Host is required"),
+  port: z.number().int().positive(),
+  database: z.string().min(1, "Database is required"),
+  user: z.string().optional(),
+  projectId: z.string().optional(),
+});
+
 const connectionCredentialsSchema = z.union([
   z.object({
     storage: z.literal("none"),
@@ -78,11 +135,16 @@ const newConnectionSchema = z.object({
   name: z.string().min(2, "Connection name is too short"),
   type: z.enum(["personal", "team"]),
   target: z.union([
+    desktopPostgresTargetSchema,
     desktopTcpTargetSchema,
+    desktopRedisTargetSchema,
+    desktopMongoTargetSchema,
     desktopSqliteTargetSchema,
     neonTargetSchema,
     proxyTargetSchema,
     planetScaleTargetSchema,
+    redisProxyTargetSchema,
+    mongoProxyTargetSchema,
   ]),
   credentials: connectionCredentialsSchema,
   showInternalSchemas: z.boolean().optional(),
@@ -247,11 +309,28 @@ export const useConnectionsStore = defineStore("connections", () => {
     }
 
     const existingProfile = profiles.value[index];
+    const nextTarget =
+      parsed.data.target.kind === "desktop-tcp" &&
+      parsed.data.target.dialect === "postgres" &&
+      existingProfile.target.kind === "desktop-tcp" &&
+      existingProfile.target.dialect === "postgres" &&
+      !parsed.data.target.tlsMode &&
+      parsed.data.target.host === existingProfile.target.host &&
+      parsed.data.target.port === existingProfile.target.port &&
+      parsed.data.target.database === existingProfile.target.database &&
+      parsed.data.target.user === existingProfile.target.user &&
+      existingProfile.target.tlsMode
+        ? {
+            ...parsed.data.target,
+            tlsMode: existingProfile.target.tlsMode,
+          }
+        : parsed.data.target;
+
     const updatedProfile: ConnectionProfile = {
       ...existingProfile,
       name: parsed.data.name,
       type: parsed.data.type,
-      target: parsed.data.target,
+      target: nextTarget,
       credentials: parsed.data.credentials,
       sync: normalizeConnectionSync(existingProfile),
       showInternalSchemas: Boolean(parsed.data.showInternalSchemas),
@@ -311,6 +390,44 @@ export const useConnectionsStore = defineStore("connections", () => {
     return nextProfile;
   }
 
+  function setDesktopPostgresTlsMode(
+    id: string,
+    tlsMode: DesktopPostgresTlsMode,
+  ): ConnectionProfile | null {
+    const index = profiles.value.findIndex((profile) => profile.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const current = profiles.value[index];
+
+    if (
+      current.target.kind !== "desktop-tcp" ||
+      current.target.dialect !== "postgres"
+    ) {
+      return null;
+    }
+
+    if (current.target.tlsMode === tlsMode) {
+      return current;
+    }
+
+    const nextProfile: ConnectionProfile = {
+      ...current,
+      target: {
+        ...current.target,
+        tlsMode,
+      },
+    };
+
+    profiles.value = profiles.value.map((profile) =>
+      profile.id === id ? nextProfile : profile,
+    );
+
+    return nextProfile;
+  }
+
   return {
     profiles,
     hasHydrated,
@@ -321,5 +438,6 @@ export const useConnectionsStore = defineStore("connections", () => {
     removeConnection,
     setActiveConnection,
     setConnectionSyncMetadata,
+    setDesktopPostgresTlsMode,
   };
 });

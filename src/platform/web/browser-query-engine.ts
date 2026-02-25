@@ -6,6 +6,8 @@ import type { ConnectionProfile, QueryRequest, QueryResult } from "../../core/ty
 import { NeonServerlessAdapter } from "./providers/neon-adapter";
 import { PlanetScaleAdapter } from "./providers/planetscale-adapter";
 import { ProxyAdapter } from "./providers/proxy-adapter";
+import { RedisProxyAdapter } from "./providers/redis-proxy-adapter";
+import { MongoProxyAdapter } from "./providers/mongo-proxy-adapter";
 import type { ProviderAdapter } from "./providers/provider-adapter";
 
 function withConnectionStringPassword(
@@ -27,7 +29,9 @@ function withConnectionStringPassword(
 export class BrowserQueryEngine implements QueryEngine {
   private readonly adapters = new Map<string, ProviderAdapter>();
 
-  async connect(connection: ConnectionProfile): Promise<void> {
+  async connect(connection: ConnectionProfile): Promise<{
+    resolvedDesktopTlsMode?: never;
+  }> {
     if (connection.target.kind !== "web-provider") {
       throw new Error(
         "Selected connection uses desktop TCP. Web mode only supports Web Provider connections.",
@@ -37,6 +41,7 @@ export class BrowserQueryEngine implements QueryEngine {
     const password = await resolveConnectionPassword(connection);
     const adapter = await this.createAdapter(connection, password);
     this.adapters.set(connection.id, adapter);
+    return {};
   }
 
   async execute(req: QueryRequest): Promise<QueryResult> {
@@ -115,6 +120,28 @@ export class BrowserQueryEngine implements QueryEngine {
           connection.target.endpoint,
           session.accessToken,
         );
+      }
+      case "redis-proxy": {
+        const session = await loadValidAuthSessionFromStorage();
+
+        if (!session) {
+          throw new Error(
+            "Sign in is required for Redis proxy connections. Use the login button in the header and try again.",
+          );
+        }
+
+        return new RedisProxyAdapter(connection.target, password ?? "", session.accessToken);
+      }
+      case "mongo-proxy": {
+        const session = await loadValidAuthSessionFromStorage();
+
+        if (!session) {
+          throw new Error(
+            "Sign in is required for MongoDB proxy connections. Use the login button in the header and try again.",
+          );
+        }
+
+        return new MongoProxyAdapter(connection.target, password ?? "", session.accessToken);
       }
       case "planetscale": {
         return new PlanetScaleAdapter(connection.target, {

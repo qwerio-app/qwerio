@@ -20,6 +20,7 @@ import { useSavedQueriesStore } from "../../stores/saved-queries";
 import { useUiStore } from "../../stores/ui";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { filterVisibleSchemas } from "../../core/schema-visibility";
+import type { DataObjectType } from "../../core/types";
 
 const route = useRoute();
 const router = useRouter();
@@ -59,15 +60,24 @@ const activeConnectionDescription = computed(() => {
         ? "Neon"
         : activeConnection.value.target.provider === "proxy"
           ? "Proxy"
-          : "PlanetScale";
+          : activeConnection.value.target.provider === "planetscale"
+            ? "PlanetScale"
+            : activeConnection.value.target.provider === "redis-proxy"
+              ? "Redis Proxy (BETA)"
+              : "Mongo Proxy (BETA)";
+  const dialectLabel =
+    activeConnection.value.target.dialect === "redis" ||
+    activeConnection.value.target.dialect === "mongodb"
+      ? `${activeConnection.value.target.dialect.toUpperCase()} (BETA)`
+      : activeConnection.value.target.dialect.toUpperCase();
 
-  return `${activeConnection.value.target.dialect.toUpperCase()} · ${source}`;
+  return `${dialectLabel} · ${source}`;
 });
 const showInternalSchemasForConnection = computed(() =>
   Boolean(activeConnection.value?.showInternalSchemas),
 );
 
-const schemaGroupMeta = [
+const sqlSchemaGroupMeta = [
   { key: "queries", label: "my queries", advanced: false },
   { key: "tables", label: "tables", advanced: false },
   { key: "views", label: "views", advanced: false },
@@ -78,7 +88,21 @@ const schemaGroupMeta = [
   { key: "sequences", label: "sequences", advanced: true },
 ] as const;
 
-type SidebarSchemaGroupKey = (typeof schemaGroupMeta)[number]["key"];
+const mongoSchemaGroupMeta = [
+  { key: "tables", label: "collections", advanced: false },
+] as const;
+
+const redisSchemaGroupMeta = [
+  { key: "tables", label: "strings", advanced: false },
+  { key: "views", label: "hashes", advanced: false },
+  { key: "functions", label: "lists", advanced: false },
+  { key: "procedures", label: "sets", advanced: false },
+  { key: "triggers", label: "sorted sets", advanced: false },
+  { key: "indexes", label: "streams", advanced: false },
+  { key: "sequences", label: "other keys", advanced: false },
+] as const;
+
+type SidebarSchemaGroupKey = (typeof sqlSchemaGroupMeta)[number]["key"];
 
 type SidebarSchemaObject = {
   name: string;
@@ -91,7 +115,12 @@ type SidebarSchemaObject = {
 };
 
 const visibleSchemaGroupMeta = computed(() =>
-  schemaGroupMeta.filter(
+  (activeConnection.value?.target.dialect === "mongodb"
+    ? mongoSchemaGroupMeta
+    : activeConnection.value?.target.dialect === "redis"
+      ? redisSchemaGroupMeta
+      : sqlSchemaGroupMeta
+  ).filter(
     (groupMeta) =>
       appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced,
   ),
@@ -202,7 +231,48 @@ function toggleSchemaGroup(
 }
 
 function isOpenableRelationGroup(groupKey: SidebarSchemaGroupKey): boolean {
-  return groupKey === "tables" || groupKey === "views";
+  return resolveObjectTypeForGroup(groupKey) !== null;
+}
+
+function resolveObjectTypeForGroup(
+  groupKey: SidebarSchemaGroupKey,
+): DataObjectType | null {
+  const dialect = activeConnection.value?.target.dialect;
+
+  if (dialect === "mongodb") {
+    return groupKey === "tables" ? "collection" : null;
+  }
+
+  if (dialect === "redis") {
+    switch (groupKey) {
+      case "tables":
+        return "redis-string";
+      case "views":
+        return "redis-hash";
+      case "functions":
+        return "redis-list";
+      case "procedures":
+        return "redis-set";
+      case "triggers":
+        return "redis-zset";
+      case "indexes":
+        return "redis-stream";
+      case "sequences":
+        return "redis-key";
+      default:
+        return null;
+    }
+  }
+
+  if (groupKey === "tables") {
+    return "table";
+  }
+
+  if (groupKey === "views") {
+    return "view";
+  }
+
+  return null;
 }
 
 async function openSavedQuery(queryId: string): Promise<void> {
@@ -259,7 +329,7 @@ async function refreshSchema(): Promise<void> {
 async function openRelation(
   schemaName: string,
   relationName: string,
-  objectType: "table" | "view",
+  objectType: DataObjectType,
 ): Promise<void> {
   if (!activeConnection.value) {
     return;
@@ -272,7 +342,25 @@ async function openRelation(
     objectType,
   });
 
-  await router.push(`/tables/${tableTab.id}`);
+  const routePath =
+    objectType === "table" || objectType === "view"
+      ? `/tables/${tableTab.id}`
+      : `/collections/${tableTab.id}`;
+  await router.push(routePath);
+}
+
+async function openRelationByGroup(
+  schemaName: string,
+  relationName: string,
+  groupKey: SidebarSchemaGroupKey,
+): Promise<void> {
+  const objectType = resolveObjectTypeForGroup(groupKey);
+
+  if (!objectType) {
+    return;
+  }
+
+  await openRelation(schemaName, relationName, objectType);
 }
 
 async function handleLinkNavigation(to: string): Promise<void> {
@@ -540,11 +628,11 @@ watch(
                     >
                       <div
                         v-if="group.key === 'queries'"
-                        class="flex items-center gap-1"
+                        class="group flex items-center gap-1 border border-transparent pl-3 pr-1.5 py-1 transition hover:border-[var(--chrome-border)] hover:bg-[#151c29]"
                       >
                         <button
                           type="button"
-                          class="flex min-w-0 flex-1 items-center gap-1.5 border border-transparent pl-4 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                          class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
                           @click="openSavedQuery(item.id ?? '')"
                         >
                           <FileCode
@@ -556,7 +644,7 @@ watch(
 
                         <button
                           type="button"
-                          class="inline-flex size-5 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-muted)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-red)]"
+                          class="hidden group-hover:block text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-red)]"
                           aria-label="Delete saved query"
                           @click="removeSavedQuery(item.id ?? '')"
                         >
@@ -567,13 +655,9 @@ watch(
                       <button
                         v-else-if="isOpenableRelationGroup(group.key)"
                         type="button"
-                        class="flex w-full items-center gap-1.5 border border-transparent pl-4 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                        class="flex w-full items-center gap-1.5 border border-transparent pl-3 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
                         @click="
-                          openRelation(
-                            schema.name,
-                            item.name,
-                            group.key === 'views' ? 'view' : 'table',
-                          )
+                          openRelationByGroup(schema.name, item.name, group.key)
                         "
                       >
                         <Table2

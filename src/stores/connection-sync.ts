@@ -9,7 +9,7 @@ import {
   type SyncPushUpsertPayload,
 } from "../core/connection-sync-api";
 import { getVariableValue, setVariableValue } from "../core/storage/indexed-db";
-import type { ConnectionProfile } from "../core/types";
+import type { ConnectionProfile, ConnectionTarget } from "../core/types";
 import { useAuthStore } from "./auth";
 import { useConnectionsStore } from "./connections";
 
@@ -68,10 +68,48 @@ function toSyncUpsertPayload(profile: ConnectionProfile): SyncPushUpsertPayload 
     ...(profile.sync?.serverId ? { serverConnectionId: profile.sync.serverId } : {}),
     name: profile.name,
     type: profile.type,
-    target: profile.target,
+    target: stripLocalTargetMetadataForSync(profile.target),
     credentials: profile.credentials,
     showInternalSchemas: Boolean(profile.showInternalSchemas),
     clientUpdatedAt: profile.updatedAt,
+  };
+}
+
+function stripLocalTargetMetadataForSync(target: ConnectionTarget): ConnectionTarget {
+  if (
+    target.kind !== "desktop-tcp" ||
+    target.dialect !== "postgres"
+  ) {
+    return target;
+  }
+
+  return {
+    kind: "desktop-tcp",
+    dialect: "postgres",
+    host: target.host,
+    port: target.port,
+    database: target.database,
+    user: target.user,
+  };
+}
+
+function mergeTargetWithLocalMetadata(
+  incoming: ConnectionTarget,
+  local: ConnectionTarget,
+): ConnectionTarget {
+  if (
+    incoming.kind !== "desktop-tcp" ||
+    incoming.dialect !== "postgres" ||
+    local.kind !== "desktop-tcp" ||
+    local.dialect !== "postgres" ||
+    !local.tlsMode
+  ) {
+    return incoming;
+  }
+
+  return {
+    ...incoming,
+    tlsMode: local.tlsMode,
   };
 }
 
@@ -326,7 +364,10 @@ export const useConnectionSyncStore = defineStore("connection-sync", () => {
                 ...profile,
                 name: acceptedUpsert.connection.name,
                 type: acceptedUpsert.connection.type,
-                target: acceptedUpsert.connection.target,
+                target: mergeTargetWithLocalMetadata(
+                  acceptedUpsert.connection.target,
+                  profile.target,
+                ),
                 credentials: acceptedUpsert.connection.credentials,
                 showInternalSchemas: acceptedUpsert.connection.showInternalSchemas,
                 updatedAt: acceptedUpsert.connection.clientUpdatedAt,
@@ -387,7 +428,10 @@ export const useConnectionSyncStore = defineStore("connection-sync", () => {
                 ...profile,
                 name: serverConnection.name,
                 type: serverConnection.type,
-                target: serverConnection.target,
+                target: mergeTargetWithLocalMetadata(
+                  serverConnection.target,
+                  profile.target,
+                ),
                 credentials: serverConnection.credentials,
                 showInternalSchemas: serverConnection.showInternalSchemas,
                 updatedAt: serverConnection.clientUpdatedAt,
