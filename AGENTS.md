@@ -136,7 +136,7 @@
 ## Testing Guidelines
 
 - Primary frameworks are Vitest (`pnpm test`).
-- Place unit tests as `*.test.ts` near the module under test (or under nearby `__tests__/`).
+- Place new unit tests under runtime roots (`tests/shared`, `tests/web`, `tests/desktop`).
 - Add e2e specs as `*.spec.ts` under `e2e/`.
 - Prioritize coverage for:
   - Connection profile validation and store behavior.
@@ -145,6 +145,21 @@
   - Query-engine runtime routing (desktop vs web).
   - Provider adapter error handling and schema/query flows.
   - Password resolution flow for `none`/`plain`/`encrypted`, including PIN-required errors.
+
+## Test Organization Rules
+
+- Runtime-separated unit test roots are required:
+  - `tests/shared/**` for runtime-agnostic logic.
+  - `tests/web/**` for browser-only logic (IndexedDB, web providers/adapters, browser crypto).
+  - `tests/desktop/**` for desktop/Tauri runtime logic.
+- Keep focus on high-value behavior:
+  - Adapters and provider error mapping.
+  - Runtime routing and query-engine boundaries.
+  - Storage, auth session persistence, connection secrets, and encryption flows.
+  - Key store behavior where persistence/runtime boundaries matter.
+- Do not pursue exhaustive UI/button-level coverage unless explicitly requested.
+- Use `pnpm test` as the single canonical unit-test command. It runs all runtime projects (`shared`, `web`, `desktop`).
+- New tests should be added under runtime test roots (`tests/shared`, `tests/web`, `tests/desktop`) rather than colocated under `src/`.
 
 ## Change Workflow
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterVisibleSchemas,
   isInternalSchemaName,
-} from "./schema-visibility";
+} from "../../../src/core/schema-visibility";
 
 describe("schema-visibility", () => {
   it("detects internal schema names", () => {

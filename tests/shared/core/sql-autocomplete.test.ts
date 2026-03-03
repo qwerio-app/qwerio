@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createEmptySchemaObjectMap } from "./query-engine";
+import { createEmptySchemaObjectMap } from "../../../src/core/query-engine";
 import {
   buildSqlAutocompleteSuggestions,
   extractSqlVariableNames,
-} from "./sql-autocomplete";
+} from "../../../src/core/sql-autocomplete";
 
 describe("extractSqlVariableNames", () => {
   it("extracts unique variables from common placeholder syntaxes", () => {

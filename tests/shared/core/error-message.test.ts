@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toErrorMessage } from "./error-message";
+import { toErrorMessage } from "../../../src/core/error-message";
 
 describe("toErrorMessage", () => {
   it("returns fallback for nullish payloads", () => {
