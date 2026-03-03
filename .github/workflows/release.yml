@@ -14,13 +14,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
+          - platform: macos-latest
             args: "--target aarch64-apple-darwin --bundles dmg"
             target: "aarch64-apple-darwin"
-          - platform: macos-13
+          - platform: macos-latest
             args: "--target x86_64-apple-darwin --bundles dmg"
             target: "x86_64-apple-darwin"
-          - platform: ubuntu-24.04
+          - platform: ubuntu-22.04
             args: "--bundles appimage"
             target: ""
           - platform: windows-latest
@@ -50,7 +50,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: install dependencies (ubuntu only)
-        if: runner.os == 'ubuntu-24.04'
+        if: runner.os == 'Linux'
         run: |
           # Linux dependencies for Tauri v2 builds.
           sudo apt-get update
@@ -59,7 +59,7 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
