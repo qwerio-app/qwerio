@@ -1,4 +1,10 @@
-export const themeIds = ["graphite", "paper"] as const;
+export const themeIds = [
+  "graphite",
+  "paper",
+  "nord",
+  "catppuccin",
+  "tokyo-night",
+] as const;
 
 export type ThemeId = (typeof themeIds)[number];
 
@@ -14,7 +20,6 @@ export type ThemeDefinition = {
 };
 
 export const DEFAULT_THEME_ID: ThemeId = "graphite";
-const PAPER_THEME_ID: ThemeId = "paper";
 
 const themeDefinitions: Record<ThemeId, ThemeDefinition> = {
   graphite: {
@@ -42,6 +47,48 @@ const themeDefinitions: Record<ThemeId, ThemeDefinition> = {
         "editor.background": "#faf7f1",
         "editor.lineHighlightBorder": "#ddd5c8",
         "editorCursor.foreground": "#5d6570",
+      },
+    },
+  },
+  nord: {
+    id: "nord",
+    label: "Nord",
+    colorScheme: "dark",
+    monaco: {
+      id: "qwerio-nord",
+      base: "vs-dark",
+      colors: {
+        "editor.background": "#2b303b",
+        "editor.lineHighlightBorder": "#434c5e",
+        "editorCursor.foreground": "#d8dee9",
+      },
+    },
+  },
+  catppuccin: {
+    id: "catppuccin",
+    label: "Catppuccin",
+    colorScheme: "dark",
+    monaco: {
+      id: "qwerio-catppuccin",
+      base: "vs-dark",
+      colors: {
+        "editor.background": "#1e1e2e",
+        "editor.lineHighlightBorder": "#313244",
+        "editorCursor.foreground": "#cdd6f4",
+      },
+    },
+  },
+  "tokyo-night": {
+    id: "tokyo-night",
+    label: "Tokyo Night",
+    colorScheme: "dark",
+    monaco: {
+      id: "qwerio-tokyo-night",
+      base: "vs-dark",
+      colors: {
+        "editor.background": "#1a1b26",
+        "editor.lineHighlightBorder": "#292e42",
+        "editorCursor.foreground": "#c0caf5",
       },
     },
   },
@@ -83,8 +130,4 @@ export function applyThemeToDocument(themeId: ThemeId): void {
 
   root.dataset.theme = normalizedThemeId;
   root.style.colorScheme = definition.colorScheme;
-}
-
-export function getAlternateThemeId(themeId: ThemeId): ThemeId {
-  return themeId === PAPER_THEME_ID ? DEFAULT_THEME_ID : PAPER_THEME_ID;
 }
