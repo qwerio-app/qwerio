@@ -58,7 +58,7 @@ async function openTable(schemaName: string, tableName: string): Promise<void> {
       <div
         v-for="schema in workbenchStore.schemaNames"
         :key="schema.name"
-        class="mb-2 border border-[var(--chrome-border)] bg-[#0f141c]"
+        class="mb-2 border border-[var(--chrome-border)] bg-[var(--chrome-surface)]"
       >
         <div class="flex items-center gap-2 border-b border-[var(--chrome-border)] px-2.5 py-1.5">
           <Braces :size="13" class="text-[var(--chrome-red)]" />
@@ -73,7 +73,7 @@ async function openTable(schemaName: string, tableName: string): Promise<void> {
           >
             <button
               type="button"
-              class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-xs text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#141a24] hover:text-[var(--chrome-ink)]"
+              class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-xs text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)]"
               @click="openTable(schema.name, table.name)"
             >
               <Table2 :size="12" class="text-[var(--chrome-yellow)]" />

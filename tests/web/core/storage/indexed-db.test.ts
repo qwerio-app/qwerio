@@ -164,19 +164,27 @@ describe("indexed-db storage", () => {
 
   it("returns fallback values for missing settings and variables", async () => {
     const settingKey = uniqueKey("setting");
+    const themeSettingKey = uniqueKey("theme-setting");
     const variableKey = uniqueKey("variable");
 
     await expect(getSettingValue(settingKey, { enabled: false })).resolves.toEqual({
       enabled: false,
     });
+    await expect(getSettingValue(themeSettingKey, "graphite")).resolves.toBe(
+      "graphite",
+    );
     await expect(getVariableValue(variableKey, "fallback")).resolves.toBe("fallback");
 
     await setSettingValue(settingKey, { enabled: true });
+    await setSettingValue(themeSettingKey, "paper");
     await setVariableValue(variableKey, "stored-value");
 
     await expect(getSettingValue(settingKey, { enabled: false })).resolves.toEqual({
       enabled: true,
     });
+    await expect(getSettingValue(themeSettingKey, "graphite")).resolves.toBe(
+      "paper",
+    );
     await expect(getVariableValue(variableKey, "fallback")).resolves.toBe("stored-value");
   });
 

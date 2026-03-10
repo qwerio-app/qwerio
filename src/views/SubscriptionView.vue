@@ -167,28 +167,28 @@ onMounted(() => {
       <template v-else>
         <p
           v-if="feedback"
-          class="mt-3 rounded-[3px] border border-[rgba(21,208,130,0.5)] bg-[var(--chrome-green-soft)] px-2 py-1.5 text-xs text-[var(--chrome-green)]"
+          class="mt-3 rounded-[3px] border border-[var(--chrome-success-border)] bg-[var(--chrome-success-surface)] px-2 py-1.5 text-xs text-[var(--chrome-success-ink)]"
         >
           {{ feedback }}
         </p>
 
         <p
           v-if="feedbackError"
-          class="mt-3 rounded-[3px] border border-[rgba(255,82,82,0.5)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-xs text-[#ffb9b9]"
+          class="mt-3 rounded-[3px] border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2 py-1.5 text-xs text-[var(--chrome-danger-ink)]"
         >
           {{ feedbackError }}
         </p>
 
         <p
           v-if="subscriptionStore.subscriptionsError"
-          class="mt-3 rounded-[3px] border border-[rgba(255,82,82,0.5)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-xs text-[#ffb9b9]"
+          class="mt-3 rounded-[3px] border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2 py-1.5 text-xs text-[var(--chrome-danger-ink)]"
         >
           {{ subscriptionStore.subscriptionsError }}
         </p>
 
         <p
           v-if="subscriptionStore.checkoutError"
-          class="mt-3 rounded-[3px] border border-[rgba(255,82,82,0.5)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-xs text-[#ffb9b9]"
+          class="mt-3 rounded-[3px] border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2 py-1.5 text-xs text-[var(--chrome-danger-ink)]"
         >
           {{ subscriptionStore.checkoutError }}
         </p>
@@ -204,7 +204,7 @@ onMounted(() => {
             <article
               v-for="subscription in subscriptionStore.subscriptions"
               :key="subscription.id"
-              class="border border-[var(--chrome-border)] bg-[#0f141d] p-3"
+              class="border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-3"
             >
               <div class="flex items-center justify-between gap-2">
                 <p class="text-sm font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)]">
@@ -258,7 +258,7 @@ onMounted(() => {
           </h3>
 
           <div class="mt-2 grid gap-3 sm:grid-cols-2">
-            <article class="border border-[var(--chrome-border)] bg-[#0f141d] p-4">
+            <article class="border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-4">
               <h4 class="font-display text-lg font-semibold text-[var(--chrome-ink)]">
                 Solo
               </h4>
@@ -275,7 +275,7 @@ onMounted(() => {
               </button>
             </article>
 
-            <article class="border border-[var(--chrome-border)] bg-[#0f141d] p-4">
+            <article class="border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-4">
               <h4 class="font-display text-lg font-semibold text-[var(--chrome-ink)]">
                 Team
               </h4>

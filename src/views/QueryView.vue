@@ -310,7 +310,7 @@ onBeforeUnmount(() => {
 
   <div
     v-if="isSaveModalOpen"
-    class="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(7,9,13,0.84)] p-4 backdrop-blur-sm"
+    class="fixed inset-0 z-[110] flex items-center justify-center bg-[var(--chrome-overlay)] p-4 backdrop-blur-sm"
     @click="closeSaveQueryModal"
   >
     <section
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
 
         <p
           v-if="saveModalError"
-          class="border border-[rgba(255,82,82,0.48)] bg-[var(--chrome-red-soft)] px-2.5 py-2 text-xs text-[#ff9a9a]"
+          class="border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2.5 py-2 text-xs text-[var(--chrome-danger-ink)]"
         >
           {{ saveModalError }}
         </p>

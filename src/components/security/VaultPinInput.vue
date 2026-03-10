@@ -221,7 +221,7 @@ watch(
       pattern="[0-9]*"
       maxlength="1"
       autocomplete="one-time-code"
-      class="h-11 w-11 rounded-[4px] border border-[var(--chrome-border)] bg-[rgba(9,11,16,0.92)] text-center text-base font-semibold text-[var(--chrome-ink)] outline-none transition focus:border-[var(--chrome-red)] sm:h-12 sm:w-12 sm:text-lg"
+      class="h-11 w-11 rounded-[4px] border border-[var(--chrome-border)] bg-[var(--chrome-input-bg)] text-center text-base font-semibold text-[var(--chrome-ink)] outline-none transition focus:border-[var(--chrome-red)] sm:h-12 sm:w-12 sm:text-lg"
       :disabled="disabled"
       :aria-label="`PIN digit ${index + 1}`"
       @keydown="handleKeydown($event, index)"

@@ -61,7 +61,7 @@ watch(pin, (value, previousValue) => {
 <template>
   <div
     v-if="vaultStore.needsUnlockPrompt"
-    class="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(7,9,13,0.92)] p-4 backdrop-blur-sm"
+    class="fixed inset-0 z-[120] flex items-center justify-center bg-[var(--chrome-overlay-strong)] p-4 backdrop-blur-sm"
   >
     <section class="panel w-full max-w-sm text-center p-4 md:p-5">
       <div class="flex justify-center items-center gap-2">

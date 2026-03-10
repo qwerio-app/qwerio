@@ -442,13 +442,17 @@ watch(
     >
       <button
         type="button"
-        class="inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] transition hover:border-[#525d74]"
+        class="inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--chrome-border-strong)] bg-[var(--chrome-surface-raised)] transition hover:border-[var(--chrome-btn-border-hover)]"
         :aria-label="
           uiStore.sidebarCollapsed ? 'expand sidebar' : 'collapse sidebar'
         "
         @click="uiStore.toggleSidebar"
       >
-        <img src="/logo.png" alt="Qwerio" class="size-8 object-cover" />
+        <img
+          src="/logo_128.png"
+          alt="Qwerio"
+          class="size-8 object-cover bg-[#101722]"
+        />
       </button>
 
       <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 leading-none">
@@ -464,8 +468,8 @@ watch(
       <section
         :class="
           uiStore.sidebarCollapsed
-            ? 'flex flex-col items-center gap-2 border border-[var(--chrome-border)] bg-[#0f141c] px-1.5 py-2'
-            : 'flex min-h-0 flex-1 flex-col border border-[var(--chrome-border)] bg-[#0f141c]'
+            ? 'flex flex-col items-center gap-2 border border-[var(--chrome-border)] bg-[var(--chrome-surface)] px-1.5 py-2'
+            : 'flex min-h-0 flex-1 flex-col border border-[var(--chrome-border)] bg-[var(--chrome-surface)]'
         "
       >
         <div
@@ -478,7 +482,7 @@ watch(
           <div
             :class="
               uiStore.sidebarCollapsed
-                ? 'flex size-7 items-center justify-center border border-[var(--chrome-border)] bg-[#141a24]'
+                ? 'flex size-7 items-center justify-center border border-[var(--chrome-border)] bg-[var(--chrome-surface-soft)]'
                 : 'min-w-0'
             "
           >
@@ -510,7 +514,7 @@ watch(
 
           <button
             type="button"
-            class="inline-flex size-7 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[#141a24] hover:text-[var(--chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+            class="inline-flex size-7 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="refresh schema"
             :disabled="!activeConnection || isRefreshingSchema"
             @click="refreshSchema"
@@ -555,11 +559,15 @@ watch(
             <section
               v-for="schema in schemaObjects"
               :key="schema.name"
-              :class="isSchemaExpanded(schema.name) ? 'bg-[#111723]' : ''"
+              :class="
+                isSchemaExpanded(schema.name)
+                  ? 'bg-[var(--chrome-surface-active)]'
+                  : ''
+              "
             >
               <button
                 type="button"
-                class="flex w-full items-center gap-1.5 px-1.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)] transition hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                class="flex w-full items-center gap-1.5 px-1.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)] transition hover:bg-[var(--chrome-surface-hover)] hover:text-[var(--chrome-ink)]"
                 @click="toggleSchema(schema.name)"
               >
                 <ChevronRight
@@ -590,7 +598,7 @@ watch(
                 >
                   <button
                     type="button"
-                    class="flex w-full min-w-0 items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[#131a27] hover:text-[var(--chrome-ink-dim)]"
+                    class="flex w-full min-w-0 items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-muted)] transition hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink-dim)]"
                     @click="toggleSchemaGroup(schema.name, group.key)"
                   >
                     <ChevronRight
@@ -628,7 +636,7 @@ watch(
                     >
                       <div
                         v-if="group.key === 'queries'"
-                        class="group flex items-center gap-1 border border-transparent pl-3 pr-1.5 py-1 transition hover:border-[var(--chrome-border)] hover:bg-[#151c29]"
+                        class="group flex items-center gap-1 border border-transparent pl-3 pr-1.5 py-1 transition hover:border-[var(--chrome-border)] hover:bg-[var(--chrome-surface-hover)]"
                       >
                         <button
                           type="button"
@@ -655,7 +663,7 @@ watch(
                       <button
                         v-else-if="isOpenableRelationGroup(group.key)"
                         type="button"
-                        class="flex w-full items-center gap-1.5 border border-transparent pl-3 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[#151c29] hover:text-[var(--chrome-ink)]"
+                        class="flex w-full items-center gap-1.5 border border-transparent pl-3 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[var(--chrome-surface-hover)] hover:text-[var(--chrome-ink)]"
                         @click="
                           openRelationByGroup(schema.name, item.name, group.key)
                         "
@@ -701,7 +709,7 @@ watch(
             navItemClass,
             isLinkActive(link.to)
               ? 'border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] text-[var(--chrome-ink)]'
-              : 'border-transparent text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:bg-[#151b24] hover:text-[var(--chrome-ink)]',
+              : 'border-transparent text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-hover)] hover:text-[var(--chrome-ink)]',
           ]"
           @click="handleLinkNavigation(link.to)"
         >
@@ -711,7 +719,7 @@ watch(
           </span>
           <span
             v-if="!uiStore.sidebarCollapsed && link.to === '/connections'"
-            class="ml-auto inline-flex min-w-5 items-center justify-center border border-[var(--chrome-border-strong)] bg-[#141a24] px-1 py-0.5 text-[10px] font-semibold tracking-[0.05em] text-[var(--chrome-ink-dim)]"
+            class="ml-auto inline-flex min-w-5 items-center justify-center border border-[var(--chrome-border-strong)] bg-[var(--chrome-surface-soft)] px-1 py-0.5 text-[10px] font-semibold tracking-[0.05em] text-[var(--chrome-ink-dim)]"
           >
             {{ savedConnectionsCount }}
           </span>

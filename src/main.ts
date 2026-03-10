@@ -3,6 +3,7 @@ import { VueQueryPlugin } from "@tanstack/vue-query";
 import { createPinia } from "pinia";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import App from "./App.vue";
+import { applyThemeToDocument, DEFAULT_THEME_ID } from "./core/theme-registry";
 import router from "./router";
 import { queryClient } from "./lib/query-client";
 import "./assets/main.css";
@@ -11,6 +12,7 @@ import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+applyThemeToDocument(DEFAULT_THEME_ID);
 
 const app = createApp(App);
 

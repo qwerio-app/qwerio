@@ -1,26 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap");
 @import "tailwindcss";
-
-:root {
-  --chrome-bg: #090b10;
-  --chrome-bg-2: #0d1016;
-  --chrome-panel: #11151d;
-  --chrome-panel-2: #161b24;
-  --chrome-ink: #e3e5ea;
-  --chrome-ink-dim: #9ca1ad;
-  --chrome-ink-muted: #6e737f;
-  --chrome-border: #2b313f;
-  --chrome-border-strong: #3b4254;
-  --chrome-red: #ff5252;
-  --chrome-red-soft: rgba(255, 82, 82, 0.16);
-  --chrome-green: #15d082;
-  --chrome-green-soft: rgba(21, 208, 130, 0.15);
-  --chrome-yellow: #ffcf5a;
-  --chrome-scroll-track: var(--chrome-bg-2);
-  --chrome-scroll-thumb: var(--chrome-border-strong);
-  --chrome-scroll-thumb-hover: var(--chrome-ink-dim);
-  --chrome-scroll-thumb-active: var(--chrome-red);
-}
+@import "./themes/graphite.css";
+@import "./themes/paper.css";
 
 * {
   box-sizing: border-box;
@@ -33,23 +14,14 @@ body,
   min-height: 100%;
 }
 
+html {
+  background: var(--chrome-app-bg);
+}
+
 body {
   font-family: "IBM Plex Mono", monospace;
   color: var(--chrome-ink);
-  background:
-    linear-gradient(0deg, rgba(255, 82, 82, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 82, 82, 0.04) 1px, transparent 1px),
-    radial-gradient(
-      circle at 75% -35%,
-      rgba(255, 82, 82, 0.08),
-      transparent 48%
-    ),
-    linear-gradient(180deg, var(--chrome-bg) 0%, var(--chrome-bg-2) 100%);
-  background-size:
-    48px 48px,
-    48px 48px,
-    auto,
-    auto;
+  background: var(--chrome-app-bg);
 }
 
 button,
@@ -69,47 +41,68 @@ h3,
 .panel,
 .chrome-panel {
   border: 1px solid var(--chrome-border);
-  background: linear-gradient(
-    180deg,
-    rgba(22, 27, 36, 0.96),
-    rgba(13, 16, 22, 0.96)
-  );
+  background: var(--chrome-panel);
   border-radius: 4px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  box-shadow: var(--chrome-panel-shadow);
 }
 
 .panel-tight {
   border: 1px solid var(--chrome-border);
-  background: rgba(14, 18, 25, 0.96);
+  background: var(--chrome-panel-2);
   border-radius: 4px;
 }
 
 .chrome-panel-header {
   border-bottom: 1px solid var(--chrome-border);
-  background: linear-gradient(
-    180deg,
-    rgba(24, 29, 40, 0.96),
-    rgba(18, 22, 30, 0.96)
-  );
+  background: var(--chrome-panel-header);
+}
+
+.chrome-surface {
+  border: 1px solid var(--chrome-border);
+  background: var(--chrome-surface);
+}
+
+.chrome-surface-muted {
+  border: 1px solid var(--chrome-border);
+  background: var(--chrome-surface-muted);
+}
+
+.chrome-surface-raised {
+  border: 1px solid var(--chrome-border-strong);
+  background: var(--chrome-surface-raised);
+}
+
+.chrome-message-error {
+  border: 1px solid var(--chrome-danger-border);
+  background: var(--chrome-danger-surface);
+  color: var(--chrome-danger-ink);
+}
+
+.chrome-message-success {
+  border: 1px solid var(--chrome-success-border);
+  background: var(--chrome-success-surface);
+  color: var(--chrome-success-ink);
 }
 
 .chrome-input {
   width: 100%;
   border: 1px solid var(--chrome-border);
   border-radius: 3px;
-  background: rgba(9, 11, 16, 0.9);
+  background: var(--chrome-input-bg);
   color: var(--chrome-ink);
   padding: 0.52rem 0.7rem;
   font-size: 0.84rem;
   outline: none;
-  transition: border-color 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 select.chrome-input {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
-  color-scheme: dark;
+  color-scheme: inherit;
   padding-right: 2rem;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--chrome-ink-dim) 50%),
@@ -122,7 +115,7 @@ select.chrome-input {
 }
 
 select.chrome-input option {
-  background-color: #0d1016;
+  background-color: var(--chrome-input-bg);
   color: var(--chrome-ink);
 }
 
@@ -143,7 +136,7 @@ select.chrome-input option {
 .chrome-input:disabled {
   cursor: not-allowed;
   color: var(--chrome-ink-muted);
-  background: rgba(7, 9, 13, 0.8);
+  background: var(--chrome-input-bg-disabled);
 }
 
 .chrome-label {
@@ -158,7 +151,7 @@ select.chrome-input option {
 .chrome-btn {
   border-radius: 3px;
   border: 1px solid var(--chrome-border-strong);
-  background: linear-gradient(180deg, #1c222f, #141923);
+  background: var(--chrome-btn-bg);
   color: var(--chrome-ink);
   font-size: 0.76rem;
   font-weight: 600;
@@ -168,11 +161,16 @@ select.chrome-input option {
   transition:
     border-color 0.15s ease,
     color 0.15s ease,
-    background 0.15s ease;
+    background-color 0.15s ease;
 }
 
 .chrome-btn:hover {
-  border-color: #525d74;
+  border-color: var(--chrome-btn-border-hover);
+  background: var(--chrome-btn-bg-hover);
+}
+
+.chrome-btn:active {
+  background: var(--chrome-btn-bg-active);
 }
 
 .chrome-btn:disabled {
@@ -181,34 +179,34 @@ select.chrome-input option {
 }
 
 .chrome-btn-primary {
-  border-color: #e14a4a;
-  background: #e14a4a;
-  color: #1d0606;
+  border-color: var(--chrome-primary-border);
+  background: var(--chrome-primary-bg);
+  color: var(--chrome-primary-ink);
 }
 
 .chrome-btn-primary:hover {
-  border-color: #ef5656;
-  background-color: #ef5656;
+  border-color: var(--chrome-primary-bg-hover);
+  background: var(--chrome-primary-bg-hover);
 }
 
 .chrome-btn-primary:active {
-  background-color: #d84343;
+  background: var(--chrome-primary-bg-active);
 }
 
 .chrome-btn-danger {
-  border-color: rgba(255, 162, 74, 0.52);
-  background-color: rgba(255, 162, 74, 0.08);
-  color: #ffb86b;
+  border-color: var(--chrome-danger-btn-border);
+  background: var(--chrome-danger-btn-bg);
+  color: var(--chrome-danger-btn-ink);
 }
 
 .chrome-btn-danger:hover {
-  border-color: rgba(255, 180, 102, 0.82);
-  background-color: rgba(255, 162, 74, 0.17);
-  color: #ffd19f;
+  border-color: var(--chrome-danger-btn-border);
+  background: var(--chrome-danger-btn-bg-hover);
+  color: var(--chrome-danger-btn-ink-hover);
 }
 
 .chrome-btn-danger:active {
-  background-color: rgba(255, 162, 74, 0.25);
+  background: var(--chrome-danger-btn-bg-active);
 }
 
 .chrome-pill {
@@ -223,25 +221,25 @@ select.chrome-input option {
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--chrome-ink-dim);
-  background: rgba(21, 25, 34, 0.9);
+  background: var(--chrome-surface-soft);
 }
 
 .chrome-pill-ok {
-  border-color: rgba(21, 208, 130, 0.5);
-  background: var(--chrome-green-soft);
-  color: var(--chrome-green);
+  border-color: var(--chrome-success-border);
+  background: var(--chrome-success-surface);
+  color: var(--chrome-success-ink);
 }
 
 .chrome-pill-bad {
-  border-color: rgba(255, 82, 82, 0.5);
-  background: var(--chrome-red-soft);
-  color: #ff9a9a;
+  border-color: var(--chrome-danger-border);
+  background: var(--chrome-danger-surface);
+  color: var(--chrome-danger-ink);
 }
 
 .chrome-empty {
   border: 1px dashed var(--chrome-border-strong);
   border-radius: 4px;
-  background: rgba(14, 17, 23, 0.7);
+  background: var(--chrome-surface-muted);
   color: var(--chrome-ink-muted);
 }
 
@@ -310,7 +308,7 @@ select.chrome-input option {
 }
 
 .default-theme.splitpanes .splitpanes__splitter {
-  background-color: #11151d !important;
+  background-color: var(--chrome-splitter-bg) !important;
   border: 1px solid var(--chrome-border) !important;
   box-sizing: border-box;
   position: relative;
@@ -318,12 +316,12 @@ select.chrome-input option {
 
 .default-theme.splitpanes .splitpanes__splitter::before,
 .default-theme.splitpanes .splitpanes__splitter::after {
-  background-color: var(--chrome-red-soft) !important;
+  background-color: var(--chrome-splitter-handle) !important;
 }
 
 .default-theme.splitpanes .splitpanes__splitter:hover::before,
 .default-theme.splitpanes .splitpanes__splitter:hover::after {
-  background-color: rgba(255, 82, 82, 0.28) !important;
+  background-color: var(--chrome-splitter-handle-hover) !important;
 }
 
 .default-theme.splitpanes--vertical > .splitpanes__splitter,
@@ -338,17 +336,17 @@ select.chrome-input option {
 
 .qwerio-grid.ag-theme-quartz-dark {
   --ag-font-family: "IBM Plex Mono", monospace;
-  --ag-foreground-color: #e3e5ea;
-  --ag-background-color: #0f131b;
+  --ag-foreground-color: var(--chrome-ink);
+  --ag-background-color: var(--chrome-grid-bg);
   --ag-border-width: 0;
-  --ag-border-color: #2b313f;
-  --ag-row-border-color: #252b37;
-  --ag-header-background-color: #171c27;
-  --ag-header-foreground-color: #b6bcc8;
-  --ag-odd-row-background-color: #121722;
-  --ag-row-hover-color: #1b2230;
-  --ag-selected-row-background-color: #2a2330;
-  --ag-input-focus-border-color: #ff5252;
+  --ag-border-color: var(--chrome-grid-border);
+  --ag-row-border-color: var(--chrome-grid-row-border);
+  --ag-header-background-color: var(--chrome-grid-header-bg);
+  --ag-header-foreground-color: var(--chrome-grid-header-ink);
+  --ag-odd-row-background-color: var(--chrome-grid-odd-row-bg);
+  --ag-row-hover-color: var(--chrome-grid-row-hover);
+  --ag-selected-row-background-color: var(--chrome-grid-row-selected);
+  --ag-input-focus-border-color: var(--chrome-red);
 }
 
 .qwerio-grid.ag-theme-quartz-dark .ag-root-wrapper {
@@ -364,7 +362,7 @@ select.chrome-input option {
 .monaco-editor,
 .monaco-editor .margin,
 .monaco-editor-background {
-  background-color: #0b0f16 !important;
+  background-color: var(--chrome-editor-bg) !important;
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar {

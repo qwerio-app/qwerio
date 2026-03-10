@@ -151,7 +151,7 @@ function renderCell(params: ICellRendererParams): string | HTMLElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className =
-    "inline-flex size-5 shrink-0 items-center justify-center rounded border border-[var(--chrome-border)] bg-[#161f2e] text-[var(--chrome-cyan)] transition hover:border-[var(--chrome-border-strong)]";
+    "inline-flex size-5 shrink-0 items-center justify-center rounded border border-[var(--chrome-border)] bg-[var(--chrome-surface-soft)] text-[var(--chrome-cyan)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-hover)]";
   button.innerHTML = VIEW_ICON_SVG;
   button.title = "View full value";
   button.setAttribute("aria-label", "View full value");
@@ -399,7 +399,7 @@ watch(
   <section class="panel-tight flex h-full min-h-0 flex-col overflow-hidden">
     <p
       v-if="errorMessage"
-      class="m-2 border border-[rgba(255,82,82,0.48)] bg-[var(--chrome-red-soft)] px-2.5 py-2 text-xs text-[#ff9a9a]"
+      class="m-2 border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2.5 py-2 text-xs text-[var(--chrome-danger-ink)]"
     >
       {{ errorMessage }}
     </p>
@@ -511,7 +511,7 @@ watch(
 
   <div
     v-if="isViewerOpen"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(7,10,15,0.72)] p-4"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-[var(--chrome-overlay-soft)] p-4"
     @click.self="closeValueViewer"
   >
     <div
@@ -534,7 +534,7 @@ watch(
         </button>
       </div>
       <pre
-        class="qwerio-scroll m-0 overflow-auto bg-[#0d1118] p-3 text-[11px] leading-relaxed text-[var(--chrome-ink)]"
+        class="qwerio-scroll m-0 overflow-auto bg-[var(--chrome-surface-muted)] p-3 text-[11px] leading-relaxed text-[var(--chrome-ink)]"
       ><code>{{ viewerContent }}</code></pre>
     </div>
   </div>
@@ -542,7 +542,7 @@ watch(
 
 <style scoped>
 :deep(.ag-cell.qwerio-cell-edited) {
-  background: rgba(68, 199, 122, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(68, 199, 122, 0.34);
+  background: var(--chrome-edited-cell-bg);
+  box-shadow: inset 0 0 0 1px var(--chrome-edited-cell-border);
 }
 </style>

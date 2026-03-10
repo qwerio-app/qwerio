@@ -19,7 +19,7 @@ async function openConnections(): Promise<void> {
 <template>
   <section class="flex h-full min-h-0 items-center justify-center">
     <div
-      class="panel-tight w-full max-w-2xl border border-[var(--chrome-border)] bg-[#0d1118] p-6 md:p-8"
+      class="panel-tight w-full max-w-2xl border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-6 md:p-8"
     >
       <p
         class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--chrome-ink-muted)]"

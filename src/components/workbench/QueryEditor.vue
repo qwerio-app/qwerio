@@ -11,6 +11,12 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { buildSqlAutocompleteSuggestions } from "../../core/sql-autocomplete";
 import type { SchemaObjectMap } from "../../core/query-engine";
 import { filterVisibleSchemas } from "../../core/schema-visibility";
+import {
+  getMonacoThemeId,
+  getThemeDefinition,
+  themeIds,
+} from "../../core/theme-registry";
+import { useAppSettingsStore } from "../../stores/app-settings";
 import { useConnectionsStore } from "../../stores/connections";
 import { useSavedQueriesStore } from "../../stores/saved-queries";
 import { useWorkbenchStore } from "../../stores/workbench";
@@ -28,6 +34,7 @@ const emit = defineEmits<{
   format: [];
   save: [];
 }>();
+const appSettingsStore = useAppSettingsStore();
 const connectionsStore = useConnectionsStore();
 const savedQueriesStore = useSavedQueriesStore();
 const workbenchStore = useWorkbenchStore();
@@ -56,7 +63,7 @@ const editorOptions = {
   scrollBeyondLastLine: false,
 };
 
-const monacoTheme = "qwerio-dark";
+const monacoTheme = computed(() => getMonacoThemeId(appSettingsStore.themeId));
 const editorTitle = computed(() => {
   const dialect = connectionsStore.activeProfile?.target.dialect;
   return dialect === "redis" || dialect === "mongodb"
@@ -143,14 +150,15 @@ function runQuery(): void {
 }
 
 const handleBeforeMount = (monaco: MonacoInstance): void => {
-  monaco.editor.defineTheme(monacoTheme, {
-    base: "vs-dark",
-    inherit: true,
-    rules: [],
-    colors: {
-      "editor.lineHighlightBorder": "#161b24",
-      "editorCursor.foreground": "#9ca1ad",
-    },
+  themeIds.forEach((themeId) => {
+    const themeDefinition = getThemeDefinition(themeId);
+
+    monaco.editor.defineTheme(themeDefinition.monaco.id, {
+      base: themeDefinition.monaco.base,
+      inherit: true,
+      rules: [],
+      colors: themeDefinition.monaco.colors,
+    });
   });
 
   completionProvider?.dispose();
@@ -250,7 +258,7 @@ onBeforeUnmount(() => {
         <div ref="runMenuRootElement" class="relative inline-flex items-center">
           <button
             type="button"
-            class="chrome-btn inline-flex h-7 items-center gap-1 !rounded-r-none !border-[var(--chrome-red)] !bg-transparent !py-0 !text-[var(--chrome-ink)] hover:!bg-[rgba(255,82,82,0.12)]"
+            class="chrome-btn inline-flex h-7 items-center gap-1 !rounded-r-none !border-[var(--chrome-red)] !bg-transparent !py-0 !text-[var(--chrome-ink)] hover:!bg-[var(--chrome-red-soft-hover)]"
             :disabled="isRunning"
             title="Run selection or statement at cursor (Ctrl/Cmd+Enter)"
             @click="runQuery"
@@ -261,7 +269,7 @@ onBeforeUnmount(() => {
 
           <button
             type="button"
-            class="chrome-btn inline-flex h-7 items-center !rounded-l-none !border-l-0 border-l-[var(--chrome-red)] !border-[var(--chrome-red)] !bg-transparent !px-2 !py-0 !text-[var(--chrome-ink)] hover:!bg-[rgba(255,82,82,0.12)]"
+            class="chrome-btn inline-flex h-7 items-center !rounded-l-none !border-l-0 border-l-[var(--chrome-red)] !border-[var(--chrome-red)] !bg-transparent !px-2 !py-0 !text-[var(--chrome-ink)] hover:!bg-[var(--chrome-red-soft-hover)]"
             aria-label="Open run actions"
             aria-haspopup="menu"
             :aria-expanded="isRunMenuOpen"

@@ -151,7 +151,7 @@ onMounted(() => {
       <template v-else>
         <p
           v-if="errorMessage"
-          class="mt-3 rounded-[3px] border border-[rgba(255,82,82,0.5)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-xs text-[#ffb9b9]"
+          class="mt-3 rounded-[3px] border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2 py-1.5 text-xs text-[var(--chrome-danger-ink)]"
         >
           {{ errorMessage }}
         </p>

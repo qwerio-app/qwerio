@@ -946,7 +946,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-yellow)]"
+            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[var(--chrome-surface)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-yellow)]"
             :disabled="isSubmitting || isTesting || connectionSyncStore.isSyncing"
             @click="syncConnectionsNow"
           >
@@ -956,7 +956,7 @@ onMounted(() => {
 
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-red)]"
+            class="inline-flex items-center gap-1.5 border border-[var(--chrome-border)] bg-[var(--chrome-surface)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--chrome-ink)] transition-colors duration-200 hover:border-[var(--chrome-red)]"
             :disabled="isSubmitting || isTesting"
             @click="openNewConnectionModal"
           >
@@ -999,7 +999,7 @@ onMounted(() => {
 
       <div
         v-if="needsCredentialUpgrade"
-        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-2"
+        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[var(--chrome-surface)] px-3 py-2"
       >
         <p class="text-xs text-[var(--chrome-yellow)]">
           Upgrade plaintext password connections before sync: {{ upgradeConnectionNames }}
@@ -1016,7 +1016,7 @@ onMounted(() => {
 
       <div
         v-if="pendingServerImportCount > 0"
-        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[#0f141d] px-3 py-2"
+        class="mt-3 flex flex-wrap items-center gap-2 border border-[var(--chrome-border)] bg-[var(--chrome-surface)] px-3 py-2"
       >
         <p class="text-xs text-[var(--chrome-ink)]">
           {{ pendingServerImportCount }} synced server connection{{
@@ -1050,7 +1050,7 @@ onMounted(() => {
           <article
             v-for="profile in section.profiles"
             :key="profile.id"
-            class="flex min-h-[176px] flex-col border border-[var(--chrome-border)] bg-[#0f141d] p-4"
+            class="flex min-h-[176px] flex-col border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-4"
           >
             <div class="flex items-start justify-between gap-2">
               <button
@@ -1160,12 +1160,12 @@ onMounted(() => {
           <button
             v-if="sectionIndex === sections.length - 1"
             type="button"
-            class="group relative flex min-h-[176px] flex-col justify-start border border-[var(--chrome-border)] bg-[#0f141d] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
+            class="group relative flex min-h-[176px] flex-col justify-start border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
             :disabled="isSubmitting || isTesting"
             @click="openNewConnectionModal"
           >
             <span
-              class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[rgba(255,255,255,0.03)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
+              class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[var(--chrome-border-soft)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
             >
               <Plus :size="16" />
             </span>
@@ -1188,12 +1188,12 @@ onMounted(() => {
       >
         <button
           type="button"
-          class="group relative flex min-h-[176px] flex-col justify-between border border-[var(--chrome-border)] bg-[#0f141d] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
+          class="group relative flex min-h-[176px] flex-col justify-between border border-[var(--chrome-border)] bg-[var(--chrome-surface)] p-4 text-left transition-colors duration-200 hover:border-[var(--chrome-red)]"
           :disabled="isSubmitting || isTesting"
           @click="openNewConnectionModal"
         >
           <span
-            class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[rgba(255,255,255,0.03)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
+            class="inline-flex size-10 items-center justify-center border border-[var(--chrome-border)] bg-[var(--chrome-border-soft)] text-[var(--chrome-red)] transition-colors duration-200 group-hover:border-[var(--chrome-red)]"
           >
             <Plus :size="16" />
           </span>
@@ -1218,7 +1218,7 @@ onMounted(() => {
 
     <div
       v-if="isModalOpen"
-      class="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(7,9,13,0.84)] p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[110] flex items-center justify-center bg-[var(--chrome-overlay)] p-4 backdrop-blur-sm"
     >
       <section
         class="panel relative z-[1] w-full max-w-3xl overflow-hidden"

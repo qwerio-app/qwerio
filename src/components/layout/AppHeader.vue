@@ -677,7 +677,7 @@ async function closeTab(tab: AppTab): Promise<void> {
           'inline-flex shrink-0 items-center gap-2 border px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
           tab.id === appTabsStore.activeTabId
             ? 'border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] text-[var(--chrome-ink)]'
-            : 'border-[var(--chrome-border)] bg-[#11161f] text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:text-[var(--chrome-ink)]',
+            : 'border-[var(--chrome-border)] bg-[var(--chrome-panel-header)] text-[var(--chrome-ink-dim)] hover:border-[var(--chrome-border-strong)] hover:text-[var(--chrome-ink)]',
         ]"
         @click="activateTab(tab)"
       >
@@ -687,7 +687,7 @@ async function closeTab(tab: AppTab): Promise<void> {
 
       <button
         type="button"
-        class="inline-flex shrink-0 items-center justify-center text-xs border border-[var(--chrome-border)] bg-[#11161f] px-1 py-1.5 text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:text-[var(--chrome-ink)]"
+        class="inline-flex shrink-0 items-center justify-center text-xs border border-[var(--chrome-border)] bg-[var(--chrome-panel-header)] px-1 py-1.5 text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:text-[var(--chrome-ink)]"
         aria-label="New query tab"
         @click="openNewQueryTab"
       >
@@ -698,7 +698,7 @@ async function closeTab(tab: AppTab): Promise<void> {
     <div class="ml-auto flex shrink-0 items-center gap-2">
       <div
         ref="profileMenuRootElement"
-        class="relative inline-flex items-center rounded-[3px] border border-[var(--chrome-border-strong)] bg-[#101722] transition hover:border-[#525d74] hover:text-[var(--chrome-ink)]"
+        class="relative inline-flex items-center rounded-[3px] border border-[var(--chrome-border-strong)] bg-[var(--chrome-surface-raised)] transition hover:border-[var(--chrome-btn-border-hover)] hover:text-[var(--chrome-ink)]"
       >
         <button
           type="button"
@@ -716,7 +716,7 @@ async function closeTab(tab: AppTab): Promise<void> {
           />
           <span
             v-else-if="authStore.isAuthenticated && userInitial"
-            class="inline-flex size-full items-center justify-center bg-[#141b2a] text-[10px] font-semibold text-[var(--chrome-ink)]"
+            class="inline-flex size-full items-center justify-center bg-[var(--chrome-surface-soft)] text-[10px] font-semibold text-[var(--chrome-ink)]"
           >
             {{ userInitial }}
           </span>
@@ -730,14 +730,14 @@ async function closeTab(tab: AppTab): Promise<void> {
           <div class="flex flex-col gap-2 text-[0.72rem]">
             <p
               v-if="authError"
-              class="rounded-[3px] border border-[rgba(255,82,82,0.5)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-[#ffb9b9]"
+              class="rounded-[3px] border border-[var(--chrome-danger-border)] bg-[var(--chrome-danger-surface)] px-2 py-1.5 text-[var(--chrome-danger-ink)]"
             >
               {{ authError }}
             </p>
 
             <p
               v-if="authMessage"
-              class="rounded-[3px] border border-[rgba(21,208,130,0.55)] bg-[var(--chrome-green-soft)] px-2 py-1.5 text-[var(--chrome-green)]"
+              class="rounded-[3px] border border-[var(--chrome-success-border)] bg-[var(--chrome-success-surface)] px-2 py-1.5 text-[var(--chrome-success-ink)]"
             >
               {{ authMessage }}
             </p>
@@ -753,7 +753,7 @@ async function closeTab(tab: AppTab): Promise<void> {
 
             <template v-else-if="authStore.isAuthenticated">
               <div
-                class="rounded-[3px] border border-[var(--chrome-border)] bg-[#101722] px-2 py-2"
+                class="rounded-[3px] border border-[var(--chrome-border)] bg-[var(--chrome-surface-raised)] px-2 py-2"
               >
                 <p class="font-semibold text-[var(--chrome-ink)]">
                   {{ userLabel }}
@@ -818,7 +818,7 @@ async function closeTab(tab: AppTab): Promise<void> {
 
               <div
                 v-if="isDesktopRuntime && githubDeviceChallenge"
-                class="rounded-[3px] border border-[var(--chrome-border)] bg-[#101722] px-2 py-2"
+                class="rounded-[3px] border border-[var(--chrome-border)] bg-[var(--chrome-surface-raised)] px-2 py-2"
               >
                 <p class="text-[var(--chrome-ink)]">
                   Enter code
@@ -915,11 +915,11 @@ async function closeTab(tab: AppTab): Promise<void> {
 
       <span
         v-if="isDesktopRuntime"
-        class="inline-flex items-center rounded-[3px] border border-[var(--chrome-border)] bg-[#0f141d]"
+        class="inline-flex items-center rounded-[3px] border border-[var(--chrome-border)] bg-[var(--chrome-surface)]"
       >
         <button
           type="button"
-          class="inline-flex size-7 items-center justify-center border-r border-[var(--chrome-border)] text-[var(--chrome-ink-dim)] transition hover:bg-[#1a212f] hover:text-[var(--chrome-ink)]"
+          class="inline-flex size-7 items-center justify-center border-r border-[var(--chrome-border)] text-[var(--chrome-ink-dim)] transition hover:bg-[var(--chrome-surface-hover-strong)] hover:text-[var(--chrome-ink)]"
           aria-label="Minimize window"
           @click="minimizeWindow"
         >
@@ -927,7 +927,7 @@ async function closeTab(tab: AppTab): Promise<void> {
         </button>
         <button
           type="button"
-          class="inline-flex size-7 items-center justify-center border-r border-[var(--chrome-border)] text-[var(--chrome-ink-dim)] transition hover:bg-[#1a212f] hover:text-[var(--chrome-ink)]"
+          class="inline-flex size-7 items-center justify-center border-r border-[var(--chrome-border)] text-[var(--chrome-ink-dim)] transition hover:bg-[var(--chrome-surface-hover-strong)] hover:text-[var(--chrome-ink)]"
           aria-label="Maximize window"
           @click="toggleMaximizeWindow"
         >
@@ -935,7 +935,7 @@ async function closeTab(tab: AppTab): Promise<void> {
         </button>
         <button
           type="button"
-          class="inline-flex size-7 items-center justify-center text-[#ff8f8f] transition hover:bg-[#3a1117] hover:text-[#ffb3b3]"
+          class="inline-flex size-7 items-center justify-center text-[var(--chrome-danger-ink)] transition hover:bg-[var(--chrome-danger-hover)] hover:text-[var(--chrome-danger-ink-hover)]"
           aria-label="Close window"
           @click="closeWindow"
         >

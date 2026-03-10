@@ -784,7 +784,7 @@ watch(
 
       <div
         v-if="!isReadOnlyView && !hasPrimaryKey"
-        class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] px-2.5 py-2 text-xs text-[var(--chrome-ink-dim)]"
+        class="mt-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] px-2.5 py-2 text-xs text-[var(--chrome-ink-dim)]"
       >
         Inline editing is disabled. This table needs a primary key for atomic
         updates.

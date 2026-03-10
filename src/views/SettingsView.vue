@@ -2,6 +2,7 @@
 import { Lock } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { getRuntimeMode } from "../core/query-engine-service";
+import { themeOptions } from "../core/theme-registry";
 import { useAppSettingsStore } from "../stores/app-settings";
 import { useVaultStore } from "../stores/vault";
 
@@ -46,7 +47,9 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
       <p class="mt-1 text-xs text-[var(--chrome-ink-dim)]">
         Current runtime context for Qwerio.
       </p>
-      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
+      <div
+        class="mt-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-3"
+      >
         <p
           class="text-[0.66rem] font-semibold uppercase tracking-[0.1em] text-[var(--chrome-ink-dim)]"
         >
@@ -74,7 +77,9 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
         needed.
       </p>
 
-      <div class="mt-3 border border-[var(--chrome-border)] bg-[#0d1118] p-3">
+      <div
+        class="mt-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-3"
+      >
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs">
             <span
@@ -116,7 +121,26 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
 
       <div class="mt-3 grid gap-2">
         <label
-          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
+          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-2.5"
+        >
+          <span class="text-xs text-[var(--chrome-ink-dim)]">Theme</span>
+          <select
+            v-model="appSettingsStore.themeId"
+            aria-label="Theme"
+            class="chrome-input chrome-input-sm w-36"
+          >
+            <option
+              v-for="themeOption in themeOptions"
+              :key="themeOption.value"
+              :value="themeOption.value"
+            >
+              {{ themeOption.label }}
+            </option>
+          </select>
+        </label>
+
+        <label
+          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-2.5"
         >
           <span class="text-xs text-[var(--chrome-ink-dim)]"
             >Show advanced schema groups (functions, triggers, indexes...)</span
@@ -129,7 +153,7 @@ function applyTemplatePreset(preset: "now" | "users" | "empty"): void {
         </label>
 
         <label
-          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[#0d1118] p-2.5"
+          class="flex items-center justify-between gap-3 border border-[var(--chrome-border)] bg-[var(--chrome-surface-muted)] p-2.5"
         >
           <span class="text-xs text-[var(--chrome-ink-dim)]"
             >Default records per results page</span
