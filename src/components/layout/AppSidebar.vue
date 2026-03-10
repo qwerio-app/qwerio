@@ -3,14 +3,16 @@ import { computed, ref, watch } from "vue";
 import { useVaultStore } from "../../stores/vault";
 import { useRoute, useRouter } from "vue-router";
 import {
-  Braces,
   Cable,
   Check,
   ChevronRight,
   Database,
+  File,
   FileCode,
+  Layers,
   RefreshCcw,
   Settings,
+  Sheet,
   Table2,
   Trash2,
 } from "lucide-vue-next";
@@ -578,7 +580,7 @@ watch(
                       : 'shrink-0 text-[var(--chrome-ink-dim)]'
                   "
                 />
-                <Braces :size="12" class="shrink-0 text-[var(--chrome-red)]" />
+                <Layers :size="12" class="shrink-0 text-[var(--chrome-red)]" />
                 <span class="truncate">{{ schema.name }}</span>
                 <span
                   class="ml-auto text-[10px] text-[var(--chrome-ink-muted)]"
@@ -621,10 +623,7 @@ watch(
                       <div
                         class="flex items-center gap-1.5 pl-4 pr-1.5 py-1 text-[11px] text-[var(--chrome-ink-muted)]"
                       >
-                        <Table2
-                          :size="11"
-                          class="text-[var(--chrome-yellow)]"
-                        />
+                        <File :size="11" class="text-[var(--chrome-yellow)]" />
                         <span>No {{ group.key }}</span>
                       </div>
                     </li>
@@ -683,7 +682,7 @@ watch(
                         v-else
                         class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-muted)]"
                       >
-                        <Table2
+                        <Sheet
                           :size="11"
                           class="shrink-0 text-[var(--chrome-ink-muted)]"
                         />
