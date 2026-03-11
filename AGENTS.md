@@ -14,6 +14,11 @@
 - `src/components/` holds reusable UI by area (`layout/`, `security/`, `workbench/`), while pages live in `src/views/`.
 - `src/stores/` contains Pinia stores, `src/router/` defines routes, and shared logic lives in `src/core/` and `src/lib/`.
 - Browser persistence is centralized in `src/core/storage/indexed-db.ts` (Dexie + IndexedDB).
+- Theme architecture lives in:
+  - `src/assets/themes/*.css` (one file per theme token set).
+  - `src/assets/main.css` (shared semantic theme consumers and global styling).
+  - `src/core/theme-registry.ts` (supported theme ids, labels, and Monaco metadata).
+  - `src/stores/app-settings.ts` + `src/views/SettingsView.vue` (theme persistence and selection UI).
 - Auth/login-specific frontend modules live in:
   - `src/components/layout/AppHeader.vue` (login/profile menu trigger and UX).
   - `src/stores/auth.ts` (auth session state and login actions).
@@ -49,6 +54,36 @@
 - Persist auth JWT session state under `variables.auth.session` (access token, expiry, and user payload).
 - Do not store auth JWT in `localStorage`; keep browser persistence in IndexedDB (`variables` table).
 - Do not add backward-compatibility code for legacy localStorage keys unless explicitly requested.
+- Persist the selected UI theme under the `settings` table via `settings.themeId`; do not add theme persistence in `localStorage`.
+
+## Theme Architecture Rules
+
+- Current supported themes are:
+  - `graphite`
+  - `paper`
+  - `nord`
+  - `catppuccin`
+  - `tokyo-night`
+- Each theme must live in its own CSS file under `src/assets/themes/`.
+- `src/core/theme-registry.ts` is the canonical source for supported theme ids, labels, and Monaco theme mappings.
+- `src/assets/main.css` must stay theme-agnostic:
+  - keep shared component classes and global rules there.
+  - consume semantic CSS variables only.
+  - do not add theme-specific hex values there.
+- When adding a new theme:
+  - create a new file in `src/assets/themes/`.
+  - register the theme in `src/core/theme-registry.ts`.
+  - import the theme file from `src/assets/main.css`.
+  - provide Monaco theme colors through the registry.
+- Do not hardcode component colors in Vue templates or shared CSS when a semantic theme token should be used instead.
+- Keep third-party surfaces theme-aware:
+  - Monaco editor.
+  - AG Grid.
+  - splitpanes.
+  - scrollbars.
+  - overlays and modal backdrops.
+- Preserve the flat, minimalist styling direction:
+  - no background gradients for app shell, panels/cards, headers, or buttons unless explicitly requested.
 
 ## Authentication and Login Rules
 
@@ -125,6 +160,7 @@
 - Vue SFCs use PascalCase filenames (for example `ConnectionsView.vue`).
 - Use descriptive kebab-case for utility/core files (for example `query-engine-service.ts`).
 - Keep Tailwind usage aligned with shared design tokens and classes in `src/assets/main.css`.
+- For themed UI work, prefer semantic CSS vars (`var(--chrome-...)`) over inline hardcoded colors in templates.
 
 ## Tailwind 4.2 Rules
 
@@ -142,6 +178,7 @@
   - Connection profile validation and store behavior.
   - Connection type grouping (`personal`/`team`) and section visibility behavior.
   - Dexie persistence behavior for `connections`, `tabs`, `settings`, and `variables`.
+  - Theme registry behavior, theme persistence, and theme-aware UI controls.
   - Query-engine runtime routing (desktop vs web).
   - Provider adapter error handling and schema/query flows.
   - Password resolution flow for `none`/`plain`/`encrypted`, including PIN-required errors.
@@ -181,6 +218,10 @@
   - Refresh/hydration paths:
     - Active connection restoration should not trigger unrelated PIN prompts.
     - Table tabs should load after hydration without false "Object tab not found" errors.
+- When changing shared UI, verify the affected surfaces in the supported themes, especially:
+  - `graphite` as the default baseline.
+  - `paper` for light-theme contrast regressions.
+  - any specialty theme directly affected by the change (`nord`, `catppuccin`, `tokyo-night`).
 
 ## Commit and Pull Request Guidelines
 

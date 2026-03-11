@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { useVaultStore } from "../../stores/vault";
-import { useRoute, useRouter } from "vue-router";
+import { computed, ref, watch } from 'vue'
+import { useVaultStore } from '../../stores/vault'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Cable,
-  Check,
   ChevronRight,
   Database,
   File,
@@ -15,326 +14,294 @@ import {
   Sheet,
   Table2,
   Trash2,
-} from "lucide-vue-next";
-import { useAppSettingsStore } from "../../stores/app-settings";
-import { useConnectionsStore } from "../../stores/connections";
-import { useSavedQueriesStore } from "../../stores/saved-queries";
-import { useUiStore } from "../../stores/ui";
-import { useWorkbenchStore } from "../../stores/workbench";
-import { filterVisibleSchemas } from "../../core/schema-visibility";
-import type { DataObjectType } from "../../core/types";
+} from 'lucide-vue-next'
+import { useAppSettingsStore } from '../../stores/app-settings'
+import { useConnectionsStore } from '../../stores/connections'
+import { useSavedQueriesStore } from '../../stores/saved-queries'
+import { useUiStore } from '../../stores/ui'
+import { useWorkbenchStore } from '../../stores/workbench'
+import { filterVisibleSchemas } from '../../core/schema-visibility'
+import type { DataObjectType } from '../../core/types'
 
-const route = useRoute();
-const router = useRouter();
-const appSettingsStore = useAppSettingsStore();
-const uiStore = useUiStore();
-const vaultStore = useVaultStore();
-const connectionsStore = useConnectionsStore();
-const workbenchStore = useWorkbenchStore();
-const savedQueriesStore = useSavedQueriesStore();
+const route = useRoute()
+const router = useRouter()
+const appSettingsStore = useAppSettingsStore()
+const uiStore = useUiStore()
+const vaultStore = useVaultStore()
+const connectionsStore = useConnectionsStore()
+const workbenchStore = useWorkbenchStore()
+const savedQueriesStore = useSavedQueriesStore()
 
 const footerLinks = [
-  { to: "/connections", label: "Connections", icon: Cable },
-  { to: "/settings", label: "Settings", icon: Settings },
-];
-const expandedSchemas = ref<Record<string, boolean>>({});
-const expandedSchemaGroups = ref<
-  Record<string, Record<SidebarSchemaGroupKey, boolean>>
->({});
-const isRefreshingSchema = ref(false);
-const isConnectionOnline = ref(false);
-const schemaLoadError = ref("");
+  { to: '/connections', label: 'Connections', icon: Cable },
+  { to: '/settings', label: 'Settings', icon: Settings },
+]
+const expandedSchemas = ref<Record<string, boolean>>({})
+const expandedSchemaGroups = ref<Record<string, Record<SidebarSchemaGroupKey, boolean>>>({})
+const isRefreshingSchema = ref(false)
+const isConnectionOnline = ref(false)
+const schemaLoadError = ref('')
 
-const activeConnection = computed(() => connectionsStore.activeProfile);
-const savedConnectionsCount = computed(() => connectionsStore.profiles.length);
-const activeConnectionName = computed(
-  () => activeConnection.value?.name ?? "No active connection",
-);
+const activeConnection = computed(() => connectionsStore.activeProfile)
+const savedConnectionsCount = computed(() => connectionsStore.profiles.length)
+const activeConnectionName = computed(() => activeConnection.value?.name ?? 'No active connection')
 const activeConnectionDescription = computed(() => {
   if (!activeConnection.value) {
-    return "Select a connection to browse database objects.";
+    return 'Select a connection to browse database objects.'
   }
 
   const source =
-    activeConnection.value.target.kind === "desktop-tcp"
-      ? "Desktop"
-      : activeConnection.value.target.provider === "neon"
-        ? "Neon"
-        : activeConnection.value.target.provider === "proxy"
-          ? "Proxy"
-          : activeConnection.value.target.provider === "planetscale"
-            ? "PlanetScale"
-            : activeConnection.value.target.provider === "redis-proxy"
-              ? "Redis Proxy (BETA)"
-              : "Mongo Proxy (BETA)";
+    activeConnection.value.target.kind === 'desktop-tcp'
+      ? 'Desktop'
+      : activeConnection.value.target.provider === 'neon'
+        ? 'Neon'
+        : activeConnection.value.target.provider === 'proxy'
+          ? 'Proxy'
+          : activeConnection.value.target.provider === 'planetscale'
+            ? 'PlanetScale'
+            : activeConnection.value.target.provider === 'redis-proxy'
+              ? 'Redis Proxy (BETA)'
+              : 'Mongo Proxy (BETA)'
   const dialectLabel =
-    activeConnection.value.target.dialect === "redis" ||
-    activeConnection.value.target.dialect === "mongodb"
+    activeConnection.value.target.dialect === 'redis' ||
+    activeConnection.value.target.dialect === 'mongodb'
       ? `${activeConnection.value.target.dialect.toUpperCase()} (BETA)`
-      : activeConnection.value.target.dialect.toUpperCase();
+      : activeConnection.value.target.dialect.toUpperCase()
 
-  return `${dialectLabel} · ${source}`;
-});
+  return `${dialectLabel} · ${source}`
+})
 const showInternalSchemasForConnection = computed(() =>
-  Boolean(activeConnection.value?.showInternalSchemas),
-);
+  Boolean(activeConnection.value?.showInternalSchemas)
+)
 
 const sqlSchemaGroupMeta = [
-  { key: "queries", label: "my queries", advanced: false },
-  { key: "tables", label: "tables", advanced: false },
-  { key: "views", label: "views", advanced: false },
-  { key: "functions", label: "functions", advanced: true },
-  { key: "procedures", label: "procedures", advanced: true },
-  { key: "triggers", label: "triggers", advanced: true },
-  { key: "indexes", label: "indexes", advanced: true },
-  { key: "sequences", label: "sequences", advanced: true },
-] as const;
+  { key: 'queries', label: 'my queries', advanced: false },
+  { key: 'tables', label: 'tables', advanced: false },
+  { key: 'views', label: 'views', advanced: false },
+  { key: 'functions', label: 'functions', advanced: true },
+  { key: 'procedures', label: 'procedures', advanced: true },
+  { key: 'triggers', label: 'triggers', advanced: true },
+  { key: 'indexes', label: 'indexes', advanced: true },
+  { key: 'sequences', label: 'sequences', advanced: true },
+] as const
 
-const mongoSchemaGroupMeta = [
-  { key: "tables", label: "collections", advanced: false },
-] as const;
+const mongoSchemaGroupMeta = [{ key: 'tables', label: 'collections', advanced: false }] as const
 
 const redisSchemaGroupMeta = [
-  { key: "tables", label: "strings", advanced: false },
-  { key: "views", label: "hashes", advanced: false },
-  { key: "functions", label: "lists", advanced: false },
-  { key: "procedures", label: "sets", advanced: false },
-  { key: "triggers", label: "sorted sets", advanced: false },
-  { key: "indexes", label: "streams", advanced: false },
-  { key: "sequences", label: "other keys", advanced: false },
-] as const;
+  { key: 'tables', label: 'strings', advanced: false },
+  { key: 'views', label: 'hashes', advanced: false },
+  { key: 'functions', label: 'lists', advanced: false },
+  { key: 'procedures', label: 'sets', advanced: false },
+  { key: 'triggers', label: 'sorted sets', advanced: false },
+  { key: 'indexes', label: 'streams', advanced: false },
+  { key: 'sequences', label: 'other keys', advanced: false },
+] as const
 
-type SidebarSchemaGroupKey = (typeof sqlSchemaGroupMeta)[number]["key"];
+type SidebarSchemaGroupKey = (typeof sqlSchemaGroupMeta)[number]['key']
 
 type SidebarSchemaObject = {
-  name: string;
-  totalCount: number;
+  name: string
+  totalCount: number
   groups: Array<{
-    key: SidebarSchemaGroupKey;
-    label: string;
-    items: Array<{ id?: string; name: string }>;
-  }>;
-};
+    key: SidebarSchemaGroupKey
+    label: string
+    items: Array<{ id?: string; name: string }>
+  }>
+}
 
 const visibleSchemaGroupMeta = computed(() =>
-  (activeConnection.value?.target.dialect === "mongodb"
+  (activeConnection.value?.target.dialect === 'mongodb'
     ? mongoSchemaGroupMeta
-    : activeConnection.value?.target.dialect === "redis"
+    : activeConnection.value?.target.dialect === 'redis'
       ? redisSchemaGroupMeta
       : sqlSchemaGroupMeta
-  ).filter(
-    (groupMeta) =>
-      appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced,
-  ),
-);
+  ).filter((groupMeta) => appSettingsStore.showAdvancedSchemaGroups || !groupMeta.advanced)
+)
 
 const visibleSchemas = computed(() => {
-  return filterVisibleSchemas(
-    workbenchStore.schemaNames,
-    showInternalSchemasForConnection.value,
-  );
-});
+  return filterVisibleSchemas(workbenchStore.schemaNames, showInternalSchemasForConnection.value)
+})
 
 const hasOnlyHiddenInternalSchemas = computed(
   () =>
     !showInternalSchemasForConnection.value &&
     workbenchStore.schemaNames.length > 0 &&
-    visibleSchemas.value.length === 0,
-);
+    visibleSchemas.value.length === 0
+)
 
 const schemaObjects = computed<SidebarSchemaObject[]>(() =>
   visibleSchemas.value.map((schema) => {
-    const schemaObjectGroup = workbenchStore.schemaObjectMap[schema.name];
+    const schemaObjectGroup = workbenchStore.schemaObjectMap[schema.name]
     const groups = visibleSchemaGroupMeta.value.map((groupMeta) => ({
       key: groupMeta.key,
       label: groupMeta.label,
       items:
-        groupMeta.key === "queries"
+        groupMeta.key === 'queries'
           ? activeConnection.value
             ? savedQueriesStore
-                .getQueriesForConnectionSchema(
-                  activeConnection.value.id,
-                  schema.name,
-                )
+                .getQueriesForConnectionSchema(activeConnection.value.id, schema.name)
                 .map((savedQuery) => ({
                   id: savedQuery.id,
                   name: savedQuery.name,
                 }))
             : []
           : (schemaObjectGroup?.[groupMeta.key] ??
-            (groupMeta.key === "tables"
-              ? (workbenchStore.tableMap[schema.name] ?? [])
-              : [])),
-    }));
-    const totalCount = groups.reduce(
-      (currentCount, group) => currentCount + group.items.length,
-      0,
-    );
+            (groupMeta.key === 'tables' ? (workbenchStore.tableMap[schema.name] ?? []) : [])),
+    }))
+    const totalCount = groups.reduce((currentCount, group) => currentCount + group.items.length, 0)
 
     return {
       name: schema.name,
       totalCount,
       groups,
-    };
-  }),
-);
+    }
+  })
+)
 
-const sidebarWidthClass = computed(() =>
-  uiStore.sidebarCollapsed ? "md:w-auto" : "md:w-[260px]",
-);
+const sidebarWidthClass = computed(() => (uiStore.sidebarCollapsed ? 'md:w-auto' : 'md:w-[260px]'))
 
 const navItemClass = computed(() =>
   uiStore.sidebarCollapsed
-    ? "flex items-center justify-center border py-2.5 text-xs font-semibold uppercase tracking-[0.13em] transition"
-    : "flex items-center gap-2.5 border px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition",
-);
+    ? 'flex items-center justify-center border py-2.5 text-xs font-semibold uppercase tracking-[0.13em] transition'
+    : 'flex items-center gap-2.5 border px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition'
+)
 
 function isLinkActive(to: string): boolean {
-  if (to === "/settings") {
-    return route.path === to;
+  if (to === '/settings') {
+    return route.path === to
   }
 
-  return route.path.startsWith(to);
+  return route.path.startsWith(to)
 }
 
 function isSchemaExpanded(schemaName: string): boolean {
-  return expandedSchemas.value[schemaName] ?? false;
+  return expandedSchemas.value[schemaName] ?? false
 }
 
 function toggleSchema(schemaName: string): void {
   expandedSchemas.value = {
     ...expandedSchemas.value,
     [schemaName]: !isSchemaExpanded(schemaName),
-  };
+  }
 }
 
-function isSchemaGroupExpanded(
-  schemaName: string,
-  groupKey: SidebarSchemaGroupKey,
-): boolean {
+function isSchemaGroupExpanded(schemaName: string, groupKey: SidebarSchemaGroupKey): boolean {
   return (
     expandedSchemaGroups.value[schemaName]?.[groupKey] ??
-    (groupKey === "tables" || groupKey === "queries")
-  );
+    (groupKey === 'tables' || groupKey === 'queries')
+  )
 }
 
-function toggleSchemaGroup(
-  schemaName: string,
-  groupKey: SidebarSchemaGroupKey,
-): void {
-  const currentSchemaGroups = expandedSchemaGroups.value[schemaName] ?? {};
+function toggleSchemaGroup(schemaName: string, groupKey: SidebarSchemaGroupKey): void {
+  const currentSchemaGroups = expandedSchemaGroups.value[schemaName] ?? {}
   expandedSchemaGroups.value = {
     ...expandedSchemaGroups.value,
     [schemaName]: {
       ...currentSchemaGroups,
       [groupKey]: !isSchemaGroupExpanded(schemaName, groupKey),
     },
-  };
+  }
 }
 
 function isOpenableRelationGroup(groupKey: SidebarSchemaGroupKey): boolean {
-  return resolveObjectTypeForGroup(groupKey) !== null;
+  return resolveObjectTypeForGroup(groupKey) !== null
 }
 
-function resolveObjectTypeForGroup(
-  groupKey: SidebarSchemaGroupKey,
-): DataObjectType | null {
-  const dialect = activeConnection.value?.target.dialect;
+function resolveObjectTypeForGroup(groupKey: SidebarSchemaGroupKey): DataObjectType | null {
+  const dialect = activeConnection.value?.target.dialect
 
-  if (dialect === "mongodb") {
-    return groupKey === "tables" ? "collection" : null;
+  if (dialect === 'mongodb') {
+    return groupKey === 'tables' ? 'collection' : null
   }
 
-  if (dialect === "redis") {
+  if (dialect === 'redis') {
     switch (groupKey) {
-      case "tables":
-        return "redis-string";
-      case "views":
-        return "redis-hash";
-      case "functions":
-        return "redis-list";
-      case "procedures":
-        return "redis-set";
-      case "triggers":
-        return "redis-zset";
-      case "indexes":
-        return "redis-stream";
-      case "sequences":
-        return "redis-key";
+      case 'tables':
+        return 'redis-string'
+      case 'views':
+        return 'redis-hash'
+      case 'functions':
+        return 'redis-list'
+      case 'procedures':
+        return 'redis-set'
+      case 'triggers':
+        return 'redis-zset'
+      case 'indexes':
+        return 'redis-stream'
+      case 'sequences':
+        return 'redis-key'
       default:
-        return null;
+        return null
     }
   }
 
-  if (groupKey === "tables") {
-    return "table";
+  if (groupKey === 'tables') {
+    return 'table'
   }
 
-  if (groupKey === "views") {
-    return "view";
+  if (groupKey === 'views') {
+    return 'view'
   }
 
-  return null;
+  return null
 }
 
 async function openSavedQuery(queryId: string): Promise<void> {
-  const savedQuery =
-    savedQueriesStore.queries.find((query) => query.id === queryId) ?? null;
+  const savedQuery = savedQueriesStore.queries.find((query) => query.id === queryId) ?? null
 
   if (!savedQuery) {
-    return;
+    return
   }
 
   const queryTab = workbenchStore.openSavedQueryTab({
     savedQueryId: savedQuery.id,
     title: savedQuery.name,
     sql: savedQuery.sql,
-  });
+  })
 
-  await router.push(`/query/${queryTab.id}`);
+  await router.push(`/query/${queryTab.id}`)
 }
 
 async function removeSavedQuery(queryId: string): Promise<void> {
   if (!queryId) {
-    return;
+    return
   }
 
-  await savedQueriesStore.removeQuery(queryId);
+  await savedQueriesStore.removeQuery(queryId)
 }
 
 async function refreshSchema(): Promise<void> {
   if (isRefreshingSchema.value) {
-    return;
+    return
   }
 
   if (!activeConnection.value) {
-    schemaLoadError.value = "";
-    isConnectionOnline.value = false;
-    return;
+    schemaLoadError.value = ''
+    isConnectionOnline.value = false
+    return
   }
 
-  isRefreshingSchema.value = true;
-  schemaLoadError.value = "";
+  isRefreshingSchema.value = true
+  schemaLoadError.value = ''
 
   try {
-    await workbenchStore.refreshSchema();
-    isConnectionOnline.value = true;
+    await workbenchStore.refreshSchema()
+    isConnectionOnline.value = true
   } catch (error) {
-    isConnectionOnline.value = false;
-    schemaLoadError.value =
-      error instanceof Error ? error.message : "Failed to load schema.";
+    isConnectionOnline.value = false
+    schemaLoadError.value = error instanceof Error ? error.message : 'Failed to load schema.'
   } finally {
-    isRefreshingSchema.value = false;
+    isRefreshingSchema.value = false
   }
 }
 
 async function openRelation(
   schemaName: string,
   relationName: string,
-  objectType: DataObjectType,
+  objectType: DataObjectType
 ): Promise<void> {
   if (!activeConnection.value) {
-    return;
+    return
   }
 
   const tableTab = workbenchStore.openTableTab({
@@ -342,48 +309,45 @@ async function openRelation(
     schemaName,
     tableName: relationName,
     objectType,
-  });
+  })
 
   const routePath =
-    objectType === "table" || objectType === "view"
+    objectType === 'table' || objectType === 'view'
       ? `/tables/${tableTab.id}`
-      : `/collections/${tableTab.id}`;
-  await router.push(routePath);
+      : `/collections/${tableTab.id}`
+  await router.push(routePath)
 }
 
 async function openRelationByGroup(
   schemaName: string,
   relationName: string,
-  groupKey: SidebarSchemaGroupKey,
+  groupKey: SidebarSchemaGroupKey
 ): Promise<void> {
-  const objectType = resolveObjectTypeForGroup(groupKey);
+  const objectType = resolveObjectTypeForGroup(groupKey)
 
   if (!objectType) {
-    return;
+    return
   }
 
-  await openRelation(schemaName, relationName, objectType);
+  await openRelation(schemaName, relationName, objectType)
 }
 
 async function handleLinkNavigation(to: string): Promise<void> {
   if (route.path !== to) {
-    await router.push(to);
+    await router.push(to)
   }
 }
 
 watch(
   () => workbenchStore.schemaNames.map((schema) => schema.name),
   (schemaNames) => {
-    const nextExpanded: Record<string, boolean> = {};
-    const nextExpandedGroups: Record<
-      string,
-      Record<SidebarSchemaGroupKey, boolean>
-    > = {};
+    const nextExpanded: Record<string, boolean> = {}
+    const nextExpandedGroups: Record<string, Record<SidebarSchemaGroupKey, boolean>> = {}
 
     schemaNames.forEach((schemaName) => {
-      nextExpanded[schemaName] = expandedSchemas.value[schemaName] ?? false;
+      nextExpanded[schemaName] = expandedSchemas.value[schemaName] ?? false
 
-      const currentGroups = expandedSchemaGroups.value[schemaName] ?? {};
+      const currentGroups = expandedSchemaGroups.value[schemaName] ?? {}
       const nextGroups: Record<SidebarSchemaGroupKey, boolean> = {
         queries: currentGroups.queries ?? true,
         tables: currentGroups.tables ?? true,
@@ -393,39 +357,39 @@ watch(
         triggers: currentGroups.triggers ?? false,
         indexes: currentGroups.indexes ?? false,
         sequences: currentGroups.sequences ?? false,
-      };
+      }
 
-      nextExpandedGroups[schemaName] = nextGroups;
-    });
+      nextExpandedGroups[schemaName] = nextGroups
+    })
 
-    expandedSchemas.value = nextExpanded;
-    expandedSchemaGroups.value = nextExpandedGroups;
+    expandedSchemas.value = nextExpanded
+    expandedSchemaGroups.value = nextExpandedGroups
   },
-  { immediate: true },
-);
+  { immediate: true }
+)
 
 watch(
   () => connectionsStore.activeConnectionId,
   async (connectionId, previousConnectionId) => {
     if (connectionId !== previousConnectionId) {
-      expandedSchemas.value = {};
-      expandedSchemaGroups.value = {};
-      isConnectionOnline.value = false;
+      expandedSchemas.value = {}
+      expandedSchemaGroups.value = {}
+      isConnectionOnline.value = false
     }
 
-    await refreshSchema();
+    await refreshSchema()
   },
-  { immediate: true },
-);
+  { immediate: true }
+)
 
 watch(
   () => vaultStore.needsUnlockPrompt,
   async (needsUnlockPrompt, previousNeedsUnlockPrompt) => {
     if (previousNeedsUnlockPrompt && !needsUnlockPrompt) {
-      await refreshSchema();
+      await refreshSchema()
     }
-  },
-);
+  }
+)
 </script>
 
 <template>
@@ -445,16 +409,10 @@ watch(
       <button
         type="button"
         class="inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--chrome-border-strong)] bg-[var(--chrome-surface-raised)] transition hover:border-[var(--chrome-btn-border-hover)]"
-        :aria-label="
-          uiStore.sidebarCollapsed ? 'expand sidebar' : 'collapse sidebar'
-        "
+        :aria-label="uiStore.sidebarCollapsed ? 'expand sidebar' : 'collapse sidebar'"
         @click="uiStore.toggleSidebar"
       >
-        <img
-          src="/logo_128.png"
-          alt="Qwerio"
-          class="size-8 object-cover bg-[#101722]"
-        />
+        <img src="/logo_128.png" alt="Qwerio" class="size-8 object-cover bg-[#101722]" />
       </button>
 
       <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 leading-none">
@@ -495,24 +453,13 @@ watch(
           </div>
 
           <div v-if="!uiStore.sidebarCollapsed" class="min-w-0 flex-1">
-            <p
-              class="truncate text-xs font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
-            >
+            <p class="truncate text-xs font-semibold tracking-[0.04em] text-[var(--chrome-ink)]">
               {{ activeConnectionName }}
             </p>
             <p class="truncate text-[10px] text-[var(--chrome-ink-dim)]">
               {{ activeConnectionDescription }}
             </p>
           </div>
-
-          <span
-            v-if="activeConnection && isConnectionOnline"
-            class="inline-flex size-6 shrink-0 items-center justify-center"
-            aria-label="Connection online"
-            title="Connection online"
-          >
-            <Check :size="14" class="text-[var(--chrome-green)]" />
-          </span>
 
           <button
             type="button"
@@ -521,17 +468,11 @@ watch(
             :disabled="!activeConnection || isRefreshingSchema"
             @click="refreshSchema"
           >
-            <RefreshCcw
-              :size="12"
-              :class="isRefreshingSchema ? 'animate-spin' : ''"
-            />
+            <RefreshCcw :size="12" :class="isRefreshingSchema ? 'animate-spin' : ''" />
           </button>
         </div>
 
-        <div
-          v-if="!uiStore.sidebarCollapsed"
-          class="qwerio-scroll min-h-0 flex-1 overflow-auto"
-        >
+        <div v-if="!uiStore.sidebarCollapsed" class="qwerio-scroll min-h-0 flex-1 overflow-auto">
           <p
             v-if="schemaLoadError"
             class="border border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-[11px] text-[var(--chrome-ink)]"
@@ -539,21 +480,15 @@ watch(
             {{ schemaLoadError }}
           </p>
 
-          <p
-            v-else-if="!activeConnection"
-            class="chrome-empty p-2 text-[11px] leading-relaxed"
-          >
+          <p v-else-if="!activeConnection" class="chrome-empty p-2 text-[11px] leading-relaxed">
             Select a connection to inspect schemas.
           </p>
 
-          <p
-            v-else-if="schemaObjects.length === 0"
-            class="chrome-empty p-2 text-[11px]"
-          >
+          <p v-else-if="schemaObjects.length === 0" class="chrome-empty p-2 text-[11px]">
             {{
               hasOnlyHiddenInternalSchemas
                 ? "Only internal schemas are available. Enable 'Show internal schemas' in this connection settings to display them."
-                : "No schemas found for this connection."
+                : 'No schemas found for this connection.'
             }}
           </p>
 
@@ -561,11 +496,7 @@ watch(
             <section
               v-for="schema in schemaObjects"
               :key="schema.name"
-              :class="
-                isSchemaExpanded(schema.name)
-                  ? 'bg-[var(--chrome-surface-active)]'
-                  : ''
-              "
+              :class="isSchemaExpanded(schema.name) ? 'bg-[var(--chrome-surface-active)]' : ''"
             >
               <button
                 type="button"
@@ -582,9 +513,7 @@ watch(
                 />
                 <Layers :size="12" class="shrink-0 text-[var(--chrome-red)]" />
                 <span class="truncate">{{ schema.name }}</span>
-                <span
-                  class="ml-auto text-[10px] text-[var(--chrome-ink-muted)]"
-                >
+                <span class="ml-auto text-[10px] text-[var(--chrome-ink-muted)]">
                   {{ schema.totalCount }}
                 </span>
               </button>
@@ -642,10 +571,7 @@ watch(
                           class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
                           @click="openSavedQuery(item.id ?? '')"
                         >
-                          <FileCode
-                            :size="11"
-                            class="shrink-0 text-[var(--chrome-cyan)]"
-                          />
+                          <FileCode :size="11" class="shrink-0 text-[var(--chrome-cyan)]" />
                           <span class="truncate">{{ item.name }}</span>
                         </button>
 
@@ -663,9 +589,7 @@ watch(
                         v-else-if="isOpenableRelationGroup(group.key)"
                         type="button"
                         class="flex w-full items-center gap-1.5 border border-transparent pl-3 pr-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border)] hover:bg-[var(--chrome-surface-hover)] hover:text-[var(--chrome-ink)]"
-                        @click="
-                          openRelationByGroup(schema.name, item.name, group.key)
-                        "
+                        @click="openRelationByGroup(schema.name, item.name, group.key)"
                       >
                         <Table2
                           :size="11"
@@ -682,10 +606,7 @@ watch(
                         v-else
                         class="flex w-full items-center gap-1.5 border border-transparent px-1.5 py-1 text-left text-[11px] text-[var(--chrome-ink-muted)]"
                       >
-                        <Sheet
-                          :size="11"
-                          class="shrink-0 text-[var(--chrome-ink-muted)]"
-                        />
+                        <Sheet :size="11" class="shrink-0 text-[var(--chrome-ink-muted)]" />
                         <span class="truncate">{{ item.name }}</span>
                       </div>
                     </li>
@@ -697,9 +618,7 @@ watch(
         </div>
       </section>
 
-      <div
-        class="mt-auto flex flex-col gap-1 border-t border-[var(--chrome-border)] pt-2"
-      >
+      <div class="mt-auto flex flex-col gap-1 border-t border-[var(--chrome-border)] pt-2">
         <button
           v-for="link in footerLinks"
           :key="link.to"

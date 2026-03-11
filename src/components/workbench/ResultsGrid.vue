@@ -1,398 +1,509 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { AgGridVue } from "ag-grid-vue3";
-import { ChevronLeft, ChevronRight, ChevronsLeft } from "lucide-vue-next";
+import { computed, ref, watch } from 'vue'
+import { AgGridVue } from 'ag-grid-vue3'
+import { ChevronLeft, ChevronRight, ChevronsLeft } from 'lucide-vue-next'
 import type {
+  CellClickedEvent,
   CellEditingStartedEvent,
   CellEditingStoppedEvent,
   CellValueChangedEvent,
   ColDef,
+  GetRowIdParams,
+  GridApi,
+  GridReadyEvent,
   ICellRendererParams,
-} from "ag-grid-community";
-import type { QueryResult } from "../../core/types";
+  RowClassParams,
+  SelectionChangedEvent,
+} from 'ag-grid-community'
+import type { QueryResult } from '../../core/types'
 
 type GridPaginationState = {
-  page: number;
-  pageSize: number;
-  canPrevious: boolean;
-  canNext: boolean;
-  totalRows: number | null;
-  isLoading?: boolean;
-};
+  page: number
+  pageSize: number
+  canPrevious: boolean
+  canNext: boolean
+  totalRows: number | null
+  isLoading?: boolean
+}
 
 type CellEditedPayload = {
-  rowIndex: number;
-  column: string;
-  oldValue: unknown;
-  newValue: unknown;
-  rowData: Record<string, unknown>;
-};
+  rowIndex: number
+  column: string
+  oldValue: unknown
+  newValue: unknown
+  rowData: Record<string, unknown>
+}
+
+type GridRowData = Record<string, unknown>
 
 const props = defineProps<{
-  result: QueryResult | null;
-  message?: string;
-  errorMessage: string;
-  pagination?: GridPaginationState | null;
-  editable?: boolean;
-  nonEditableColumns?: string[];
-}>();
+  result: QueryResult | null
+  message?: string
+  errorMessage: string
+  pagination?: GridPaginationState | null
+  editable?: boolean
+  nonEditableColumns?: string[]
+  rowSelection?: 'single' | 'multiple'
+  selectedRowIds?: string[]
+  rowIdField?: string
+  isCellEditable?: (rowData: GridRowData, column: string) => boolean
+  rowClassResolver?: (rowData: GridRowData) => string | undefined
+}>()
 
 const emit = defineEmits<{
-  "change-page": [page: number];
-  "cell-edited": [payload: CellEditedPayload];
-}>();
+  'change-page': [page: number]
+  'cell-edited': [payload: CellEditedPayload]
+  'selection-changed': [rowIds: string[]]
+  'active-row-changed': [rowId: string]
+}>()
 
 const defaultColDef: ColDef = {
   sortable: false,
   filter: false,
-};
+}
 
-const LONG_TEXT_VIEW_THRESHOLD = 120;
+const LONG_TEXT_VIEW_THRESHOLD = 120
 const VIEW_ICON_SVG = `
 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
   <circle cx="11" cy="11" r="7"></circle>
   <path d="m20 20-3.5-3.5"></path>
-</svg>`;
+</svg>`
 
-const activeViewerColumn = ref("");
-const activeViewerValue = ref<unknown>(null);
-const isViewerOpen = ref(false);
-const gridContainerElement = ref<HTMLElement | null>(null);
-const editedCellOriginalValueByKey = ref<Record<string, unknown>>({});
-const pendingRestoreScrollTop = ref<number | null>(null);
-const nonEditableColumnSet = computed(
-  () => new Set(props.nonEditableColumns ?? []),
-);
+const activeViewerColumn = ref('')
+const activeViewerValue = ref<unknown>(null)
+const isViewerOpen = ref(false)
+const gridContainerElement = ref<HTMLElement | null>(null)
+const editedCellOriginalValueByKey = ref<Record<string, unknown>>({})
+const pendingRestoreScrollTop = ref<number | null>(null)
+const gridApi = ref<GridApi<GridRowData> | null>(null)
+const nonEditableColumnSet = computed(() => new Set(props.nonEditableColumns ?? []))
+const rowSelectionEnabled = computed(() => Boolean(props.rowSelection && props.rowIdField))
+const selectedRowIdSet = computed(() => new Set(props.selectedRowIds ?? []))
 
 function isComplexValue(value: unknown): boolean {
-  return Array.isArray(value) || (typeof value === "object" && value !== null);
+  return Array.isArray(value) || (typeof value === 'object' && value !== null)
 }
 
 function isViewableValue(value: unknown): boolean {
   if (Array.isArray(value)) {
-    return true;
+    return true
   }
 
   if (value instanceof Date) {
-    return false;
+    return false
   }
 
-  if (typeof value === "object" && value !== null) {
-    return true;
+  if (typeof value === 'object' && value !== null) {
+    return true
   }
 
-  return typeof value === "string" && value.length > LONG_TEXT_VIEW_THRESHOLD;
+  return typeof value === 'string' && value.length > LONG_TEXT_VIEW_THRESHOLD
 }
 
 function toCellPreview(value: unknown): string {
   if (value === null || value === undefined) {
-    return "null";
+    return 'null'
   }
 
   if (value instanceof Date) {
-    return value.toISOString();
+    return value.toISOString()
   }
 
-  if (typeof value === "string") {
-    return value;
+  if (typeof value === 'string') {
+    return value
   }
 
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value)
   }
 
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   } catch {
-    return String(value);
+    return String(value)
   }
 }
 
 function toPreviewSnippet(value: unknown): string {
-  const preview = toCellPreview(value);
-  return preview.length > 88 ? `${preview.slice(0, 88)}...` : preview;
+  const preview = toCellPreview(value)
+  return preview.length > 88 ? `${preview.slice(0, 88)}...` : preview
 }
 
 function openValueViewer(columnName: string, value: unknown): void {
-  activeViewerColumn.value = columnName;
-  activeViewerValue.value = value;
-  isViewerOpen.value = true;
+  activeViewerColumn.value = columnName
+  activeViewerValue.value = value
+  isViewerOpen.value = true
 }
 
 function closeValueViewer(): void {
-  isViewerOpen.value = false;
+  isViewerOpen.value = false
 }
 
 function renderCell(params: ICellRendererParams): string | HTMLElement {
-  const fieldName = params.colDef?.field ?? "";
+  const fieldName = params.colDef?.field ?? ''
 
   if (params.value === null || params.value === undefined) {
-    const nullText = document.createElement("span");
-    nullText.className = "text-[var(--chrome-ink-muted)]";
-    nullText.textContent = "null";
-    return nullText;
+    const nullText = document.createElement('span')
+    nullText.className = 'text-[var(--chrome-ink-muted)]'
+    nullText.textContent = 'null'
+    return nullText
   }
 
   if (!isViewableValue(params.value)) {
-    return toCellPreview(params.value);
+    return toCellPreview(params.value)
   }
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "flex h-full items-center gap-2 overflow-hidden";
+  const wrapper = document.createElement('div')
+  wrapper.className = 'flex h-full items-center gap-2 overflow-hidden'
 
-  const snippet = document.createElement("span");
-  snippet.className = "truncate text-[12px] text-[var(--chrome-ink-dim)]";
-  snippet.textContent = toPreviewSnippet(params.value);
+  const snippet = document.createElement('span')
+  snippet.className = 'truncate text-[12px] text-[var(--chrome-ink-dim)]'
+  snippet.textContent = toPreviewSnippet(params.value)
 
-  const button = document.createElement("button");
-  button.type = "button";
+  const button = document.createElement('button')
+  button.type = 'button'
   button.className =
-    "inline-flex size-5 shrink-0 items-center justify-center rounded border border-[var(--chrome-border)] bg-[var(--chrome-surface-soft)] text-[var(--chrome-cyan)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-hover)]";
-  button.innerHTML = VIEW_ICON_SVG;
-  button.title = "View full value";
-  button.setAttribute("aria-label", "View full value");
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openValueViewer(fieldName, params.value);
-  });
+    'inline-flex size-5 shrink-0 items-center justify-center rounded border border-[var(--chrome-border)] bg-[var(--chrome-surface-soft)] text-[var(--chrome-cyan)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-hover)]'
+  button.innerHTML = VIEW_ICON_SVG
+  button.title = 'View full value'
+  button.setAttribute('aria-label', 'View full value')
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    openValueViewer(fieldName, params.value)
+  })
 
-  wrapper.append(snippet, button);
-  return wrapper;
+  wrapper.append(snippet, button)
+  return wrapper
 }
 
 function toEditedCellKey(rowIndex: number, column: string): string {
-  return `${rowIndex}:${column}`;
+  return `${rowIndex}:${column}`
 }
 
 function areValuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) {
-    return true;
+    return true
   }
 
-  if (
-    typeof left === "object" &&
-    left !== null &&
-    typeof right === "object" &&
-    right !== null
-  ) {
+  if (typeof left === 'object' && left !== null && typeof right === 'object' && right !== null) {
     try {
-      return JSON.stringify(left) === JSON.stringify(right);
+      return JSON.stringify(left) === JSON.stringify(right)
     } catch {
-      return false;
+      return false
     }
   }
 
-  return false;
+  return false
 }
 
-function isEditedCell(
-  rowIndex: number | null | undefined,
-  column: string,
-): boolean {
-  if (typeof rowIndex !== "number") {
-    return false;
+function isEditedCell(rowIndex: number | null | undefined, column: string): boolean {
+  if (typeof rowIndex !== 'number') {
+    return false
   }
 
-  const cellKey = toEditedCellKey(rowIndex, column);
-  return cellKey in editedCellOriginalValueByKey.value;
+  const cellKey = toEditedCellKey(rowIndex, column)
+  return cellKey in editedCellOriginalValueByKey.value
 }
 
 function registerEditedCell(
   rowIndex: number,
   column: string,
   oldValue: unknown,
-  newValue: unknown,
+  newValue: unknown
 ): void {
-  const cellKey = toEditedCellKey(rowIndex, column);
-  const existingOriginalValue = editedCellOriginalValueByKey.value[cellKey];
-  const hasExistingOriginalValue =
-    cellKey in editedCellOriginalValueByKey.value;
+  const cellKey = toEditedCellKey(rowIndex, column)
+  const existingOriginalValue = editedCellOriginalValueByKey.value[cellKey]
+  const hasExistingOriginalValue = cellKey in editedCellOriginalValueByKey.value
 
   if (!hasExistingOriginalValue) {
     if (areValuesEqual(oldValue, newValue)) {
-      return;
+      return
     }
 
     editedCellOriginalValueByKey.value = {
       ...editedCellOriginalValueByKey.value,
       [cellKey]: oldValue,
-    };
-    return;
+    }
+    return
   }
 
   if (areValuesEqual(newValue, existingOriginalValue)) {
-    const { [cellKey]: _, ...rest } = editedCellOriginalValueByKey.value;
-    editedCellOriginalValueByKey.value = rest;
-    return;
+    const { [cellKey]: _, ...rest } = editedCellOriginalValueByKey.value
+    editedCellOriginalValueByKey.value = rest
+    return
   }
 }
 
 function getGridBodyViewport(): HTMLElement | null {
-  return (
-    gridContainerElement.value?.querySelector<HTMLElement>(
-      ".ag-body-viewport",
-    ) ?? null
-  );
+  return gridContainerElement.value?.querySelector<HTMLElement>('.ag-body-viewport') ?? null
 }
 
 function handleCellEditingStarted(_: CellEditingStartedEvent): void {
-  const viewport = getGridBodyViewport();
-  pendingRestoreScrollTop.value = viewport?.scrollTop ?? null;
+  const viewport = getGridBodyViewport()
+  pendingRestoreScrollTop.value = viewport?.scrollTop ?? null
 }
 
 function handleCellEditingStopped(_: CellEditingStoppedEvent): void {
-  const restoreScrollTop = pendingRestoreScrollTop.value;
-  pendingRestoreScrollTop.value = null;
+  const restoreScrollTop = pendingRestoreScrollTop.value
+  pendingRestoreScrollTop.value = null
 
   if (restoreScrollTop === null) {
-    return;
+    return
   }
 
   window.requestAnimationFrame(() => {
-    const viewport = getGridBodyViewport();
+    const viewport = getGridBodyViewport()
 
     if (viewport) {
-      viewport.scrollTop = restoreScrollTop;
+      viewport.scrollTop = restoreScrollTop
     }
-  });
+  })
 }
 
-const columnDefs = computed<ColDef[]>(() =>
-  (props.result?.columns ?? []).map((column) => ({
-    field: column.name,
-    headerName: column.name,
-    sortable: false,
-    filter: false,
-    resizable: true,
-    flex: 1,
-    minWidth: 140,
-    editable: (params) =>
-      Boolean(props.editable) &&
-      !nonEditableColumnSet.value.has(column.name) &&
-      !isComplexValue(
-        (params.data as Record<string, unknown> | undefined)?.[column.name],
-      ),
-    cellClass: (params) =>
-      isEditedCell(params.rowIndex, column.name) ? "qwerio-cell-edited" : "",
-    cellRenderer: renderCell,
-  })),
-);
+const columnDefs = computed<ColDef[]>(() => [
+  ...(rowSelectionEnabled.value
+    ? [
+        {
+          colId: '__qwerio-selection',
+          headerName: '',
+          checkboxSelection: true,
+          headerCheckboxSelection: props.rowSelection === 'multiple',
+          headerCheckboxSelectionCurrentPageOnly: true,
+          editable: false,
+          sortable: false,
+          filter: false,
+          resizable: false,
+          width: 44,
+          minWidth: 44,
+          maxWidth: 44,
+          pinned: 'left',
+          suppressMovable: true,
+          lockPinned: true,
+          lockPosition: 'left',
+          cellClass: 'qwerio-selection-cell',
+        } satisfies ColDef,
+      ]
+    : []),
+  ...(props.result?.columns ?? []).map(
+    (column) =>
+      ({
+        field: column.name,
+        headerName: column.name,
+        sortable: false,
+        filter: false,
+        resizable: true,
+        flex: 1,
+        minWidth: 140,
+        editable: (params) => {
+          const rowData = params.data as GridRowData | undefined
 
-const rowData = computed(() => props.result?.rows ?? []);
-const pagination = computed(() => props.pagination ?? null);
+          if (!Boolean(props.editable) || !rowData || isComplexValue(rowData[column.name])) {
+            return false
+          }
+
+          if (props.isCellEditable) {
+            return props.isCellEditable(rowData, column.name)
+          }
+
+          return !nonEditableColumnSet.value.has(column.name)
+        },
+        cellClass: (params) =>
+          isEditedCell(params.rowIndex, column.name) ? 'qwerio-cell-edited' : '',
+        cellRenderer: renderCell,
+      }) satisfies ColDef
+  ),
+])
+
+const rowData = computed(() => props.result?.rows ?? [])
+const pagination = computed(() => props.pagination ?? null)
 
 const pageSummary = computed(() => {
   if (!pagination.value || !props.result) {
-    return null;
+    return null
   }
 
-  const returnedRows = props.result.rows.length;
-  const from =
-    returnedRows > 0
-      ? (pagination.value.page - 1) * pagination.value.pageSize + 1
-      : 0;
-  const to = returnedRows > 0 ? from + returnedRows - 1 : 0;
+  const returnedRows = props.result.rowCount
+  const from = returnedRows > 0 ? (pagination.value.page - 1) * pagination.value.pageSize + 1 : 0
+  const to = returnedRows > 0 ? from + returnedRows - 1 : 0
 
-  return `${from}-${to}`;
-});
+  return `${from}-${to}`
+})
 
-const totalRows = computed(() => props.pagination?.totalRows ?? null);
+const totalRows = computed(() => props.pagination?.totalRows ?? null)
 
 const viewerContent = computed(() => {
-  const value = activeViewerValue.value;
+  const value = activeViewerValue.value
 
-  if (typeof value === "string") {
-    return value;
+  if (typeof value === 'string') {
+    return value
   }
 
   if (value === null || value === undefined) {
-    return "null";
+    return 'null'
   }
 
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value)
   }
 
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(value, null, 2)
   } catch {
-    return String(value);
+    return String(value)
   }
-});
+})
 
 function handleCellValueChanged(event: CellValueChangedEvent): void {
-  const column = event.colDef.field;
-  const rowIndex = event.rowIndex;
+  const column = event.colDef.field
+  const rowIndex = event.rowIndex
 
-  if (
-    typeof column !== "string" ||
-    typeof rowIndex !== "number" ||
-    !event.data
-  ) {
-    return;
+  if (typeof column !== 'string' || typeof rowIndex !== 'number' || !event.data) {
+    return
   }
 
-  registerEditedCell(rowIndex, column, event.oldValue, event.newValue);
+  registerEditedCell(rowIndex, column, event.oldValue, event.newValue)
   event.api.refreshCells({
     rowNodes: [event.node],
     columns: [column],
     force: true,
-  });
+  })
 
   if (Object.is(event.oldValue, event.newValue)) {
-    return;
+    return
   }
 
-  emit("cell-edited", {
+  emit('cell-edited', {
     rowIndex,
     column,
     oldValue: event.oldValue,
     newValue: event.newValue,
     rowData: event.data as Record<string, unknown>,
-  });
+  })
+}
+
+function handleCellClicked(event: CellClickedEvent<GridRowData>): void {
+  if (!props.rowIdField || !event.data) {
+    return
+  }
+
+  const rowId = event.data[props.rowIdField]
+
+  if (typeof rowId === 'string') {
+    emit('active-row-changed', rowId)
+  }
+}
+
+function getRowId(params: GetRowIdParams<GridRowData>): string {
+  const rowIdField = props.rowIdField
+
+  if (!rowIdField) {
+    return ''
+  }
+
+  const rowId = params.data?.[rowIdField]
+  return typeof rowId === 'string' ? rowId : String(rowId ?? '')
+}
+
+function resolveRowClass(params: RowClassParams<GridRowData>): string {
+  if (!params.data || !props.rowClassResolver) {
+    return ''
+  }
+
+  return props.rowClassResolver(params.data) ?? ''
+}
+
+function syncSelection(): void {
+  if (!rowSelectionEnabled.value || !props.rowIdField || !gridApi.value) {
+    return
+  }
+
+  gridApi.value.forEachNode((node) => {
+    const rowId = node.data?.[props.rowIdField ?? '']
+
+    if (typeof rowId !== 'string') {
+      return
+    }
+
+    const shouldBeSelected = selectedRowIdSet.value.has(rowId)
+
+    if (Boolean(node.isSelected()) !== shouldBeSelected) {
+      node.setSelected(shouldBeSelected)
+    }
+  })
+}
+
+function scheduleSelectionSync(): void {
+  if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+    window.requestAnimationFrame(() => {
+      syncSelection()
+    })
+    return
+  }
+
+  queueMicrotask(() => {
+    syncSelection()
+  })
+}
+
+function handleGridReady(event: GridReadyEvent<GridRowData>): void {
+  gridApi.value = event.api
+  syncSelection()
+}
+
+function handleSelectionChanged(event: SelectionChangedEvent<GridRowData>): void {
+  if (!rowSelectionEnabled.value || !props.rowIdField) {
+    return
+  }
+
+  emit(
+    'selection-changed',
+    (event.selectedNodes ?? [])
+      .map((node) => node.data?.[props.rowIdField ?? ''])
+      .filter((rowId): rowId is string => typeof rowId === 'string')
+  )
 }
 
 function goToFirstPage(): void {
   if (!pagination.value || pagination.value.page <= 1) {
-    return;
+    return
   }
 
-  emit("change-page", 1);
+  emit('change-page', 1)
 }
 
 function goToPreviousPage(): void {
   if (!pagination.value || !pagination.value.canPrevious) {
-    return;
+    return
   }
 
-  emit("change-page", pagination.value.page - 1);
+  emit('change-page', pagination.value.page - 1)
 }
 
 function goToNextPage(): void {
   if (!pagination.value || !pagination.value.canNext) {
-    return;
+    return
   }
 
-  emit("change-page", pagination.value.page + 1);
+  emit('change-page', pagination.value.page + 1)
 }
 
 watch(
   () => props.result?.rows,
   () => {
-    editedCellOriginalValueByKey.value = {};
-    pendingRestoreScrollTop.value = null;
+    editedCellOriginalValueByKey.value = {}
+    pendingRestoreScrollTop.value = null
   },
-  { immediate: true },
-);
+  { immediate: true }
+)
+
+watch(
+  [rowData, () => props.selectedRowIds, rowSelectionEnabled],
+  () => {
+    scheduleSelectionSync()
+  },
+  { deep: true }
+)
 </script>
 
 <template>
@@ -426,14 +537,21 @@ watch(
         :row-data="rowData"
         :default-col-def="defaultColDef"
         :column-defs="columnDefs"
+        :row-selection="rowSelectionEnabled ? props.rowSelection : undefined"
+        :suppress-row-click-selection="rowSelectionEnabled"
         :single-click-edit="false"
         :stop-editing-when-cells-lose-focus="true"
         :suppress-scroll-on-new-data="true"
+        :get-row-id="rowSelectionEnabled ? getRowId : undefined"
+        :get-row-class="props.rowClassResolver ? resolveRowClass : undefined"
         theme="legacy"
         class="h-full w-full"
+        @grid-ready="handleGridReady"
         @cell-editing-started="handleCellEditingStarted"
         @cell-editing-stopped="handleCellEditingStopped"
+        @cell-clicked="handleCellClicked"
         @cell-value-changed="handleCellValueChanged"
+        @selection-changed="handleSelectionChanged"
       />
     </div>
 
@@ -449,7 +567,7 @@ watch(
         >
           <button
             type="button"
-            class="chrome-btn inline-flex size-5 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
+            class="chrome-btn inline-flex size-7 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
             :disabled="pagination.isLoading || !pagination.canPrevious"
             aria-label="Go to first page"
             title="First page"
@@ -459,7 +577,7 @@ watch(
           </button>
           <button
             type="button"
-            class="chrome-btn inline-flex size-5 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
+            class="chrome-btn inline-flex size-7 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
             :disabled="pagination.isLoading || !pagination.canPrevious"
             aria-label="Go to previous page"
             title="Previous page"
@@ -478,7 +596,7 @@ watch(
           >
           <button
             type="button"
-            class="chrome-btn inline-flex size-5 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
+            class="chrome-btn inline-flex size-7 items-center justify-center !p-0 text-[var(--chrome-ink-dim)] hover:text-[var(--chrome-ink)]"
             :disabled="pagination.isLoading || !pagination.canNext"
             aria-label="Go to next page"
             title="Next page"
@@ -491,7 +609,7 @@ watch(
         <p
           class="truncate font-display text-sm font-semibold tracking-[0.04em] text-[var(--chrome-ink)]"
         >
-          {{ message || "" }}
+          {{ message || '' }}
         </p>
       </div>
 
@@ -514,22 +632,12 @@ watch(
     class="fixed inset-0 z-50 flex items-center justify-center bg-[var(--chrome-overlay-soft)] p-4"
     @click.self="closeValueViewer"
   >
-    <div
-      class="panel-tight flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden"
-    >
-      <div
-        class="chrome-panel-header flex items-center justify-between px-3 py-2"
-      >
-        <p
-          class="text-xs font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-dim)]"
-        >
-          {{ activeViewerColumn || "Value" }}
+    <div class="panel-tight flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden">
+      <div class="chrome-panel-header flex items-center justify-between px-3 py-2">
+        <p class="text-xs font-semibold uppercase tracking-[0.09em] text-[var(--chrome-ink-dim)]">
+          {{ activeViewerColumn || 'Value' }}
         </p>
-        <button
-          type="button"
-          class="chrome-btn px-2 py-0.5 text-[10px]"
-          @click="closeValueViewer"
-        >
+        <button type="button" class="chrome-btn px-2 py-0.5 text-[10px]" @click="closeValueViewer">
           Close
         </button>
       </div>
@@ -544,5 +652,43 @@ watch(
 :deep(.ag-cell.qwerio-cell-edited) {
   background: var(--chrome-edited-cell-bg);
   box-shadow: inset 0 0 0 1px var(--chrome-edited-cell-border);
+}
+
+:deep(.ag-cell.qwerio-selection-cell),
+:deep(.ag-header-cell[col-id='__qwerio-selection']) {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+:deep(.ag-header-cell[col-id='__qwerio-selection'] > .ag-header-cell-comp-wrapper) {
+  display: none;
+}
+
+:deep(.ag-cell.qwerio-selection-cell),
+:deep(.ag-header-cell[col-id='__qwerio-selection']) {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+:deep(.ag-selection-checkbox),
+:deep(.ag-header-select-all) {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0;
+}
+
+:deep(.ag-selection-checkbox .ag-checkbox-input-wrapper),
+:deep(.ag-header-select-all .ag-checkbox-input-wrapper) {
+  margin: 0;
+}
+
+:deep(.ag-row.qwerio-row-insert .ag-cell) {
+  background: color-mix(in srgb, var(--chrome-grid-row-selected) 55%, transparent);
 }
 </style>

@@ -1,10 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap");
-@import "tailwindcss";
-@import "./themes/graphite.css";
-@import "./themes/paper.css";
-@import "./themes/nord.css";
-@import "./themes/catppuccin.css";
-@import "./themes/tokyo-night.css";
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap');
+@import 'tailwindcss';
+@import './themes/graphite.css';
+@import './themes/paper.css';
+@import './themes/nord.css';
+@import './themes/catppuccin.css';
+@import './themes/tokyo-night.css';
 
 * {
   box-sizing: border-box;
@@ -22,7 +22,7 @@ html {
 }
 
 body {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: 'IBM Plex Mono', monospace;
   color: var(--chrome-ink);
   background: var(--chrome-app-bg);
 }
@@ -38,7 +38,7 @@ h1,
 h2,
 h3,
 .font-display {
-  font-family: "Rajdhani", sans-serif;
+  font-family: 'Rajdhani', sans-serif;
 }
 
 .panel,
@@ -338,7 +338,7 @@ select.chrome-input option {
 }
 
 .qwerio-grid.ag-theme-quartz-dark {
-  --ag-font-family: "IBM Plex Mono", monospace;
+  --ag-font-family: 'IBM Plex Mono', monospace;
   --ag-foreground-color: var(--chrome-ink);
   --ag-background-color: var(--chrome-grid-bg);
   --ag-border-width: 0;
@@ -349,6 +349,11 @@ select.chrome-input option {
   --ag-odd-row-background-color: var(--chrome-grid-odd-row-bg);
   --ag-row-hover-color: var(--chrome-grid-row-hover);
   --ag-selected-row-background-color: var(--chrome-grid-row-selected);
+  --ag-active-color: var(--chrome-primary-bg);
+  --ag-checkbox-checked-color: var(--chrome-primary-bg);
+  --ag-checkbox-indeterminate-color: var(--chrome-primary-bg);
+  --ag-checkbox-unchecked-color: var(--chrome-ink-muted);
+  --ag-checkbox-background-color: var(--chrome-grid-bg);
   --ag-input-focus-border-color: var(--chrome-red);
 }
 
