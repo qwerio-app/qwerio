@@ -6,9 +6,11 @@ import {
   Cable,
   ChevronRight,
   Database,
+  Download,
   File,
   FileCode,
   Layers,
+  LoaderCircle,
   RefreshCcw,
   Settings,
   Sheet,
@@ -20,6 +22,15 @@ import { useConnectionsStore } from '../../stores/connections'
 import { useSavedQueriesStore } from '../../stores/saved-queries'
 import { useUiStore } from '../../stores/ui'
 import { useWorkbenchStore } from '../../stores/workbench'
+import { getQueryEngine } from '../../core/query-engine-service'
+import {
+  canExportSchemaForDialect,
+  createSchemaExportArtifact,
+  downloadSchemaExport,
+  exportDatabaseSchema,
+  type DatabaseSchemaExportFormat,
+} from '../../core/schema-export'
+import { toErrorMessage } from '../../core/error-message'
 import { filterVisibleSchemas } from '../../core/schema-visibility'
 import type { DataObjectType } from '../../core/types'
 
@@ -39,8 +50,11 @@ const footerLinks = [
 const expandedSchemas = ref<Record<string, boolean>>({})
 const expandedSchemaGroups = ref<Record<string, Record<SidebarSchemaGroupKey, boolean>>>({})
 const isRefreshingSchema = ref(false)
+const isExportingSchema = ref(false)
 const isConnectionOnline = ref(false)
+const isExportMenuOpen = ref(false)
 const schemaLoadError = ref('')
+const schemaExportError = ref('')
 
 const activeConnection = computed(() => connectionsStore.activeProfile)
 const savedConnectionsCount = computed(() => connectionsStore.profiles.length)
@@ -121,6 +135,7 @@ const visibleSchemaGroupMeta = computed(() =>
 const visibleSchemas = computed(() => {
   return filterVisibleSchemas(workbenchStore.schemaNames, showInternalSchemasForConnection.value)
 })
+const canExportSchema = computed(() => canExportSchemaForDialect(activeConnection.value?.target.dialect))
 
 const hasOnlyHiddenInternalSchemas = computed(
   () =>
@@ -295,6 +310,38 @@ async function refreshSchema(): Promise<void> {
   }
 }
 
+function toggleExportMenu(): void {
+  if (!canExportSchema.value || isExportingSchema.value) {
+    return
+  }
+
+  isExportMenuOpen.value = !isExportMenuOpen.value
+}
+
+async function exportSchema(format: DatabaseSchemaExportFormat): Promise<void> {
+  if (!activeConnection.value || !canExportSchema.value || isExportingSchema.value) {
+    return
+  }
+
+  isExportingSchema.value = true
+  isExportMenuOpen.value = false
+  schemaExportError.value = ''
+
+  try {
+    const exportData = await exportDatabaseSchema(
+      getQueryEngine(),
+      activeConnection.value,
+      visibleSchemas.value.map((schema) => schema.name)
+    )
+    const artifact = createSchemaExportArtifact(activeConnection.value, format, exportData)
+    downloadSchemaExport(artifact)
+  } catch (error) {
+    schemaExportError.value = toErrorMessage(error, 'Failed to export database schema.')
+  } finally {
+    isExportingSchema.value = false
+  }
+}
+
 async function openRelation(
   schemaName: string,
   relationName: string,
@@ -375,6 +422,8 @@ watch(
       expandedSchemas.value = {}
       expandedSchemaGroups.value = {}
       isConnectionOnline.value = false
+      isExportMenuOpen.value = false
+      schemaExportError.value = ''
     }
 
     await refreshSchema()
@@ -461,18 +510,61 @@ watch(
             </p>
           </div>
 
-          <button
-            type="button"
-            class="inline-flex size-7 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="refresh schema"
-            :disabled="!activeConnection || isRefreshingSchema"
-            @click="refreshSchema"
-          >
-            <RefreshCcw :size="12" :class="isRefreshingSchema ? 'animate-spin' : ''" />
-          </button>
+          <div class="relative flex items-center gap-1">
+            <button
+              v-if="canExportSchema"
+              type="button"
+              class="inline-flex size-7 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+              :aria-label="isExportMenuOpen ? 'close schema export menu' : 'open schema export menu'"
+              :disabled="!activeConnection || isExportingSchema"
+              @click="toggleExportMenu"
+            >
+              <LoaderCircle v-if="isExportingSchema" :size="12" class="animate-spin" />
+              <Download v-else :size="12" />
+            </button>
+
+            <button
+              type="button"
+              class="inline-flex size-7 shrink-0 items-center justify-center border border-transparent text-[var(--chrome-ink-dim)] transition hover:border-[var(--chrome-border-strong)] hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="refresh schema"
+              :disabled="!activeConnection || isRefreshingSchema"
+              @click="refreshSchema"
+            >
+              <RefreshCcw :size="12" :class="isRefreshingSchema ? 'animate-spin' : ''" />
+            </button>
+
+            <div
+              v-if="isExportMenuOpen"
+              class="absolute right-0 top-full z-10 mt-1 min-w-32 border border-[var(--chrome-border-strong)] bg-[var(--chrome-surface-raised)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.2)]"
+            >
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)]"
+                @click="exportSchema('markdown')"
+              >
+                <span>Markdown</span>
+                <span class="text-[10px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">.md</span>
+              </button>
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] text-[var(--chrome-ink-dim)] transition hover:bg-[var(--chrome-surface-soft)] hover:text-[var(--chrome-ink)]"
+                @click="exportSchema('json')"
+              >
+                <span>JSON</span>
+                <span class="text-[10px] uppercase tracking-[0.08em] text-[var(--chrome-ink-muted)]">.json</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-if="!uiStore.sidebarCollapsed" class="qwerio-scroll min-h-0 flex-1 overflow-auto">
+          <p
+            v-if="schemaExportError"
+            class="border border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-[11px] text-[var(--chrome-ink)]"
+          >
+            {{ schemaExportError }}
+          </p>
+
           <p
             v-if="schemaLoadError"
             class="border border-[var(--chrome-red)] bg-[var(--chrome-red-soft)] px-2 py-1.5 text-[11px] text-[var(--chrome-ink)]"
